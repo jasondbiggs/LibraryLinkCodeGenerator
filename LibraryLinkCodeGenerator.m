@@ -19,7 +19,7 @@ ClearAll["GetFunctions`Private`*"]
 (*Utilities*)
 
 
-$LibraryName = "RDKitLink"
+
 $PacletDirectory = FileNameDrop[$InputFileName, -2]
 
 echo = If[$Notebooks, Echo, (Print[##2];Print[#1])&];
@@ -28,6 +28,9 @@ throw[args__] := (
 	echo @ args;
 	Throw[$Failed, _, #&]
 );
+
+If[!StringQ[$LibraryName], throw["$LibraryName undefined"]];
+If[!StringQ[$LibraryContext], throw["$LibraryContext undefined"]];
 
 closeOff[function_] := SetDelayed[
 	function[in_],
@@ -356,7 +359,7 @@ parenNode[x_] /; $flag := GroupNode[
 (* ::Subsection::Closed:: *)
 (*Write WL source files*)
 
-$LibraryContext = "Chemistry`RDKitLink`"
+
 
 WriteLibrarySignatures[sourceFiles_, destinationFile_] := Module[
 	{signatures = scanForSignatures /@ sourceFiles, outstring, symbols},
