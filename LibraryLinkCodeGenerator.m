@@ -29,8 +29,8 @@ throw[args__] := (
 	Throw[$Failed, _, #&]
 );
 
-If[!StringQ[$LibraryName], throw["$LibraryName undefined"]];
-If[!StringQ[$LibraryContext], throw["$LibraryContext undefined"]];
+If[!StringQ[$LibraryName = Global`$LibraryName], throw["$LibraryName undefined"]];
+If[!StringQ[$LibraryContext = Global`$LibraryContext], throw["$LibraryContext undefined"]];
 
 closeOff[function_] := SetDelayed[
 	function[in_],
