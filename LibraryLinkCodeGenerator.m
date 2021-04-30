@@ -382,6 +382,8 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_] := Module[
 		"\n\n",
 		$beginPrivateBlock,
 		"\n\n",
+		"LibraryLoad["<>Global`$LibraryName<>"];",
+		"\n\n",
 		outstring,
 		"\n\n",
 		$endCodeBlock
