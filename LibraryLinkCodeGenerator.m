@@ -6,7 +6,6 @@ Needs["CodeParser`"]
 Needs["CodeFormatter`"]
 Needs["GeneralUtilities`"]
 
-
 WriteLibrarySignatures
 getFunctionString
 nodeToString
@@ -18,7 +17,7 @@ ClearAll["GetFunctions`Private`*"]
 (* ::Subsection::Closed:: *)
 (*Utilities*)
 
-
+$inputDir = DirectoryName @ $InputFileName;
 
 $PacletDirectory = FileNameDrop[$InputFileName, -2]
 
@@ -29,8 +28,6 @@ throw[args__] := (
 	Throw[$Failed, _, #&]
 );
 
-If[!StringQ[Global`$LibraryName], throw["$LibraryName undefined"]];
-If[!StringQ[Global`$LibraryContext], throw["$LibraryContext undefined"]];
 
 closeOff[function_] := SetDelayed[
 	function[in_],
@@ -165,12 +162,6 @@ scanForArguments[body_] := Block[{comments, MArgument = Identity, MReturn = Iden
 	}
 ];
 
-(*
-
-dfdfd
-
-
-*)
 scanForComments[body_] := StringCases[
 	body,
 	{
@@ -199,9 +190,7 @@ scanForEnumTypes[body_ /; hasEnum[body]] := StringCases[body,
 scanForEnumTypes[___] := {}
 
 getLibraryEnums[type_, list_] := Enumerate[type,
-	Map[StringTrim,
-		ImportString[StringReplace[list, "," -> ""], "Lines"]
-	]
+	Map[StringTrim,StringSplit[list, ","]]
 ]
 
 With[{context = $Context},
@@ -222,7 +211,7 @@ $flag = False;
 
 nodeToString[node: Except[_List]] := nodeToString[{node}];
 nodeToString[nodes_List] := Block[{$flag = True},
-	Echo[#, "after"]& @prettyfyCodeString @ Echo[#, "before"]& @ failOnMessage @ CodeFormatCST @ ToExpression[ToString[containerNode[nodes],InputForm]]
+	stringPostProcess @ failOnMessage @ CodeFormatCST @ ToExpression[ToString[containerNode[nodes],InputForm]]
 ]
 
 
@@ -366,35 +355,49 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		signatures = scanForSignatures /@ sourceFiles, outstring, catchingFunction,
 		symbols, filestring, functionsString, libraryName, enumerateDefinitionString,
 		librarySymbolContext, failureTag, throwingFunction, errorHandlingString,
-		datastoreString
+		datastoreString, mleString, mles, pretty
 	},
 	libraryName = Lookup[params, "LibraryName", throw[$Failed, "no library name"]];
 	librarySymbolContext = Lookup[params, "LibrarySymbolContext", ""];
-	failureTag = Lookup[params, "FailureTag", "$" <> libraryName <> "Failure"];
+	failureTag = Lookup[params, "FailureTag", libraryName <> "FailureTag"];
 	throwingFunction = Lookup[params, "ThrowingFunction", "Throw" <> libraryName <> "Failure"];
 	catchingFunction = Lookup[params, "CatchingFunction", "Catch" <> libraryName <> "Failure"];
+	pretty = If[Lookup[params, "Pretty", False], prettyfyCodeString, Identity];
+	
 	
 	If[!MatchQ[signatures, {{_,_}..}], throw[signatures,"no signatures found"]];
 	symbols = scanForSymbols[
 		Flatten[DeleteCases[signatures[[All, 2]],_Enumerate, Infinity]][[All, 1]],
 		librarySymbolContext
 	];
-	functionsString = UsingFrontEnd @ StringRiffle[
-		fileDefinitionString @@@ signatures,
-		"\n"
+	functionsString = UsingFrontEnd @ Block[{stringPostProcess = pretty},
+		StringRiffle[
+			fileDefinitionString @@@ signatures,
+			"\n"
+		]
 	];
-	filestring = addSymbolDeclarations[Import[destinationFile, "Text"], symbols, librarySymbolContext];
+	filestring = addSymbolDeclarations[Import[destinationFile, "Text"], symbols];
 	
-	errorHandlingString = Import[FileNameJoin[{DirectoryName @ $InputFileName, "ErrorHandling.m"}], "Text"];
+	
+	mles = scanForManagedTypes[Flatten[DeleteCases[signatures[[All, 2]],_Enumerate, Infinity]][[All, 1]]];
+	mleString = If[Length[mles] < 1,
+		Nothing,
+		StringReplace[
+			Import[FileNameJoin[{$inputDir, "ManagedExpressions.m"}], "Text"],
+			"$MLEList" :> ToString[mles]
+		]
+	];
+	
+	errorHandlingString = Import[FileNameJoin[{$inputDir, "ErrorHandling.m"}], "Text"];
 	
 	enumerateDefinitionString = If[FreeQ[signatures, Enumerate],
 		Nothing,
-		Import[FileNameJoin[{DirectoryName @ $InputFileName, "Enumerate.m"}], "Text"]
+		Import[FileNameJoin[{$inputDir, "Enumerate.m"}], "Text"]
 	];
 	
 	datastoreString = If[FreeQ[signatures, "DataStore"],
 		Nothing,
-		Import[FileNameJoin[{DirectoryName @ $InputFileName, "ToFromDataStore.m"}], "Text"]
+		Import[FileNameJoin[{$inputDir, "ToFromDataStore.m"}], "Text"]
 	];
 	
 	If[!StringQ[functionsString],throw[$Failed,"bad signature conversion"]];
@@ -404,6 +407,8 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 			errorHandlingString,
 			enumerateDefinitionString,
 			datastoreString,
+			functionsString,
+			mleString,
 			$endCodeBlock
 		},
 		"\n\n"
@@ -414,14 +419,14 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 	];
 	filestring = StringReplace[filestring,
 		{
-			"$LibraryName" -> libraryName,
-			"$FailureTag" -> failureTag,
-			"$ThrowingFunction" -> throwingFunction,
-			"$CatchingFunction" -> catchingFunction
+			"LibraryName" -> libraryName,
+			"FailureTag" -> failureTag,
+			"ThrowingFunction" -> throwingFunction,
+			"CatchingFunction" -> catchingFunction
 		}
 	];
 
-	Export[destinationFile, outstring, "Text"]
+	Export[destinationFile, filestring, "Text"]
 ]
 
 addSymbolDeclarations[fileString_, symbolsList_] := Module[
@@ -471,6 +476,15 @@ scanForSymbols[input_, librarySymbolContext_] := DeleteDuplicates @ Replace[inpu
 		{sym_} :> librarySymbolContext <> sym,
 		{obj_, method_} :> librarySymbolContext <> obj,
 		{obj_, sub_, method_} :> librarySymbolContext <> sub
+	},
+	{1}
+]
+
+scanForManagedTypes[input_] := DeleteDuplicates @ Replace[input,
+	{
+		{sym_} :> Nothing,
+		{obj_, method_} :> obj,
+		{obj_, sub_, method_} :> {obj, sub}
 	},
 	{1}
 ]
@@ -699,7 +713,7 @@ makeLibDef[fspec_, libargs_List, libreturn_] := setNode[
 	composeNode[
 		libraryFunctionLoad,
 		{
-			symbolNode["$"<>Global`$LibraryName],
+			symbolNode["$LibraryName"],
 			stringNode @ StringRiffle[fspec,"_"],
 			listNode @ libargs,
 			libreturn

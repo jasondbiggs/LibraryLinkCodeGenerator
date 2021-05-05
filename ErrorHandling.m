@@ -1,43 +1,56 @@
+
+
 (* ::Subsection::Closed:: *)
-(*ErrorHandling*)
-
-(*
-	Code adapted from LibraryLinkUtilities error handling functions.	
-*)
+(*Error handling code, adapted from LibraryLinkUtilities.wl*)
 
 
+
+If[
+	StringQ[$LibraryName = FindLibrary["LibraryName"]] && TrueQ[Check[LibraryLoad[$LibraryName];True, False]],
+	libraryFunctionLoad[args__] := Quiet @ Check[LibraryFunctionLoad @ args, Throw[$Failed, "liberr", #1&]],
+	libraryFunctionLoad[___] := $Failed
+]
 
 With[
-	{fun = LibraryFunctionLoad[$LibraryName, "setExceptionDetailsContext", {String}, String]},
+	{fun = libraryFunctionLoad[$LibraryName, "setExceptionDetailsContext", {String}, String]},
 	fun[$Context]
 ]
 
+
+
+If[!AssociationQ[$CorePacletFailureLUT],
+	$CorePacletFailureLUT = <|
+		"GeneralFailure" -> {31, "`1`"},
+		"UnknownEnumValue" -> {27, "`1` is not a known value for type `2`."}
+	|>
+];
+
+With[
+	{fun = libraryFunctionLoad[$LibraryName, "sendRegisteredErrors", LinkObject, LinkObject]},
+	AssociateTo[$CorePacletFailureLUT, fun[]]
+]
+
+
 With[{rdtag = $FailureTag},
-	ThrowPacletFailure[type_String, params_List] := ThrowPacletFailure[type, "MessageParameters" -> params];
-	ThrowPacletFailure[type_ ? StringQ, opts:OptionsPattern[CreatePacletFailure]] := With[
-		{failure = CreatePacletFailure[type, opts]},
+	$ThrowingFunction[type_String, params_List] := $ThrowingFunction[type, "MessageParameters" -> params];
+	$ThrowingFunction[type_ ? StringQ, opts:OptionsPattern[createPacletFailure]] := With[
+		{failure = createPacletFailure[type, opts]},
 		Throw[failure, rdtag, cleanFailure];
-	];
-	ThrowInvalidArgumentFailure[HoldPattern[LibraryFunction[_,lfun_,largs_,_][args___]], caller_] := Throw[
-		Failure["InvalidLibraryArguments", 
-			<|
-				"MessageTemplate" -> "Invalid library arguments.", 
-				"Expected" -> largs, "Actual" -> {args}, "ThrowingFunction" -> caller
-			|>
-		], rdtag, cleanFailure
 	]
 ]
-Attributes[CatchRDExceptions] = {HoldAll}
-CatchRDExceptions[arg_] := Catch[arg, $FailureTag]
+
+
+Attributes[$CatchingFunction] = {HoldAll}
+$CatchingFunction[arg_] := Catch[arg, $FailureTag]
 	
 
-Options[CreatePacletFailure] = {
+Options[createPacletFailure] = {
 	"ThrowingFunction" -> None,
 	"MessageParameters" -> <||>,
 	"Parameters" -> {}
 };
 
-CreatePacletFailure[type_?StringQ, opts:OptionsPattern[]] :=
+createPacletFailure[type_?StringQ, opts:OptionsPattern[]] :=
 Block[{msgParam, param, errorCode, msgTemplate, errorType, fun, assoc},
 	msgParam = Replace[OptionValue["MessageParameters"], Except[_?AssociationQ | _List] -> <||>];
 	param = Replace[OptionValue["Parameters"], {p_?StringQ :> {p}, Except[{_?StringQ.. }] -> {}}];
@@ -72,11 +85,11 @@ Block[{msgParam, param, errorCode, msgTemplate, errorType, fun, assoc},
 ];
 
 
-Clear @ $LastFailureParameters;
+
 GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 	{slotNames, slotValues, msgParams, selectedSlotValues, params = {}},
 	slotNames = DeleteDuplicates @ Cases[First @ StringTemplate @ msgTemplate, TemplateSlot[s_] -> s];
-	slotValues = If[ListQ[Echo @ $LastFailureParameters], $LastFailureParameters, {}];
+	slotValues = If[ListQ[$LastFailureParameters], $LastFailureParameters, {}];
 	$LastFailureParameters = {};
 	msgParams = If[MatchQ[slotNames, {Repeated[_Integer]}],
 		slotValues,
@@ -93,43 +106,18 @@ GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 ];
 
 
-$CorePacletFailureLUT = <|
-	"LibraryLoadFailure" -> {20, "Failed to load library `LibraryName`. Details: `Details`."},
-	"FunctionLoadFailure" -> {21, "Failed to load the function `FunctionName` from `LibraryName`. Details: `Details`."},
-	"RegisterFailure" -> {22, "Incorrect arguments to RegisterPacletErrors."},
-	"UnknownFailure" -> {23, "The error `ErrorName` has not been registered."},
-	"ProgressMonInvalidValue" -> {24, "Expecting None or a Symbol for the option \"ProgressMonitor\"."},
-	"InvalidManagedExpressionID" -> {25, "`Expr` is not a valid ManagedExpression." },
-	"UnexpectedManagedExpression" -> {26, "Expected managed `Expected`, got `Actual`." },
-	"UnknownEnumValue" -> {27, "`1` is not a known value for type `2`."},
-	"NoDataStore" -> {28, "`1` cannot be converted to a DataStore node."},
-	"InvalidParameter" -> {29, "Invalid value `2` for parameter `1`."},
-	"InvalidResult" -> {30, "Invalid result `1`."},
-	"GeneralFailure" -> {31, "`1`"}
-|>;
-
-
-
-With[
-	{fun = LibraryFunctionLoad[$LibraryName, "sendRegisteredErrors", LinkObject, LinkObject]},
-	AssociateTo[$CorePacletFailureLUT, fun[]]
-]
-
-
-libraryFunctionLoad[args__] := Quiet @ Check[LibraryFunctionLoad @ args, Throw[$Failed, "liberr"]]
 
 catchThrowErrors = Function[{arg, caller}, 
 	Replace[Quiet @ arg,
 		{
-			LibraryFunctionError[_, b_] :> ThrowPacletFailure[ErrorCodeToName[b], "ThrowingFunction" -> caller](*,
-			res:(_LibraryFunction)[___] :> ThrowInvalidArgumentFailure[res, caller]*) (* costs an extra 8 microseconds, maybe remove *)
+			LibraryFunctionError[_, b_] :> $ThrowingFunction[errorCodeToName[b], "ThrowingFunction" -> caller]
 		}
 	],
 	HoldFirst
 ];
 
 
-ErrorCodeToName[errorCode_Integer]:=
+errorCodeToName[errorCode_Integer]:=
 Block[{name = Select[$CorePacletFailureLUT, MatchQ[#, {errorCode, _}] &]},
 	If[Length[name] > 0 && Depth[name] > 2,
 		First @ Keys @ name
@@ -152,7 +140,6 @@ cleanFailure[f_,__] := f
 
 fixLibraryMessage[{str_String}] /; StringContainsQ[str, "\n"] := Module[
 	{lines = Map[StringTrim, ImportString[str, "Lines"]]},
-	lines = Select[lines, StringFreeQ["on line"|"RDKIT:"|"BOOST:"]];
 	{StringJoin[StringTake[StringRiffle[lines, ", "], UpTo[50]], "\[Ellipsis]"]}
 ]
 
@@ -161,4 +148,8 @@ fixLibraryMessage[{str_String}] /; StringLength[str] > 50 := {
 }
 
 fixLibraryMessage[arg__] := arg
+
+
+
+
 
