@@ -154,9 +154,14 @@ scanForFunction[functiontype_, name_, body_] := Module[
 	ftype[StringSplit[StringReplace[name, bef__ ~~ "," ~~ __ :> bef], "_"], Sequence @@ arguments]
 ]
 
-scanForArguments[body_] := Block[{comments, MArgument = Identity, MReturn = Identity},
+scanForArguments[body_] := Block[{comments, MArgument = Identity, MReturn = Identity, usage},
 	comments = scanForComments[body];
+	usage = Replace[
+		Select[comments, StringContainsQ["MUsage"]],
+		{{x_,___} :> x, _ :> Nothing}
+	];
 	{
+		usage,
 		Map[toExpression, Select[comments, StringContainsQ["MArgument"]]],
 		toExpression @ SelectFirst[comments, StringContainsQ["MReturn"], throw[body, "no return"]]
 	}
@@ -499,11 +504,20 @@ commentTemplate = StringTemplate["\n\n(* ::Subsection::Closed:: *)\n(*`1`*)\n\n"
 
 getFunctionStrings[exprs_] := Check[
 	StringRiffle[
-		getFunctionString /@ exprs,
+		getFunctionAndComment /@ exprs,
 		"\n\n"
 	],
 	throw[exprs, "bad exprs"]
 ]
+
+
+getFunctionAndComment[(head_)[obj_, MUsage[usage_], args___]] := StringJoin[
+	getUsageString[head[obj, args], usage],
+	"\n\n",
+	getFunctionString[head[obj, args]]
+]
+
+getUsageString[_, usage_] := StringJoin["(*\n", usage, "\n*)"];
 
 
 (* ::Subsection::Closed:: *)
