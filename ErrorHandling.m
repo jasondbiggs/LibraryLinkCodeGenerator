@@ -45,7 +45,7 @@ $CatchingFunction[arg_] := Catch[arg, $FailureTag]
 	
 
 Options[createPacletFailure] = {
-	"ThrowingFunction" -> None,
+	"CallingFunction" -> None,
 	"MessageParameters" -> <||>,
 	"Parameters" -> {}
 };
@@ -73,8 +73,8 @@ Block[{msgParam, param, errorCode, msgTemplate, errorType, fun, assoc},
 		"MessageParameters" -> msgParam,
 		"ErrorCode" -> errorCode
 	|>;
-	If[OptionValue["ThrowingFunction"] =!= None, 
-		assoc["ThrowingFunction"] = OptionValue["ThrowingFunction"]
+	If[OptionValue["CallingFunction"] =!= None, 
+		assoc["CallingFunction"] = OptionValue["CallingFunction"]
 	];
 	If[Length[param] > 0, 
 		assoc["Parameters"] = param
@@ -110,7 +110,7 @@ GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 catchThrowErrors = Function[{arg, caller}, 
 	Replace[Quiet @ arg,
 		{
-			LibraryFunctionError[_, b_] :> $ThrowingFunction[errorCodeToName[b], "ThrowingFunction" -> caller]
+			LibraryFunctionError[_, b_] :> $ThrowingFunction[errorCodeToName[b], "CallingFunction" -> caller]
 		}
 	],
 	HoldFirst
