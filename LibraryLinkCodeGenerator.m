@@ -35,9 +35,15 @@ closeOff[function_] := SetDelayed[
 ]
 
 Attributes[failOnMessage] = {HoldAll}
-failOnMessage[eval_] := Internal`HandlerBlock[
+failOnMessage[eval_] := eval(*Internal`HandlerBlock[
 	{"Message", throw[HoldForm[eval], "message issued"]&},
 	eval
+]*)
+
+
+
+With[{context = $Context},
+	toExpression[arg_] := Block[{$Context = context}, Replace[ToExpression @ arg, Null :> throw[arg, "null expression"]]]
 ]
 
 
@@ -109,6 +115,8 @@ prettyfyCodeString[codeString_] := ToExpression[codeString,
 (* ::Subsection::Closed:: *)
 (*Scan source files*)
 
+Get @ FileNameJoin[{$inputDir, "CommentParser.m"}]
+
 
 scanForSignatures[file_?FileExistsQ] := Module[
 	{res, text = Import[file, "Text"]},
@@ -154,11 +162,13 @@ scanForFunction[functiontype_, name_, body_] := Module[
 	ftype[StringSplit[StringReplace[name, bef__ ~~ "," ~~ __ :> bef], "_"], Sequence @@ arguments]
 ]
 
-scanForArguments[body_] := Block[{comments, MArgument = Identity, MReturn = Identity, usage},
+scanForArguments[body_String /; StringContainsQ[body, "/**"]] := scanDoxyString[body]
+
+scanForArguments[body_] := Block[{comments, MArgument = Identity, usage},
 	comments = scanForComments[body];
 	usage = Replace[
 		Select[comments, StringContainsQ["MUsage"]],
-		{{x_,___} :> x, _ :> Nothing}
+		{{x_,___} :> toExpression[x], _ :> Nothing}
 	];
 	{
 		usage,
@@ -198,13 +208,9 @@ getLibraryEnums[type_, list_] := Enumerate[type,
 	Map[StringTrim,StringSplit[list, ","]]
 ]
 
-With[{context = $Context},
-	toExpression[arg_] := Block[{$Context = context}, Replace[ToExpression @ arg, Null :> throw[arg, "null expression"]]]
-]
-
 
 checkValidArguments[arguments_, {functiontype_, name_, body_}] := If[
-	Last[arguments] === "Void" && StringContainsQ[body, "mngr.set"]
+	Last[arguments] === MReturn["Void"] && StringContainsQ[body, "mngr.set"]
 	,
 	throw[name, "returning a value from a void function"]
 ]
@@ -215,8 +221,15 @@ checkValidArguments[arguments_, {functiontype_, name_, body_}] := If[
 $flag = False;
 
 nodeToString[node: Except[_List]] := nodeToString[{node}];
-nodeToString[nodes_List] := Block[{$flag = True},
-	stringPostProcess @ failOnMessage @ CodeFormatCST @ ToExpression[ToString[containerNode[nodes],InputForm]]
+nodeToString[nodes_List] := stringPostProcess[
+	failOnMessage @ CodeFormatCST @ withFlag @ withFlag[containerNode[nodes]]
+]
+
+
+
+withFlag[expr_] := Block[{$flag = True},
+	Update /@ $flagConditionedSymbols;
+	expr
 ]
 
 
@@ -514,10 +527,27 @@ getFunctionStrings[exprs_] := Check[
 getFunctionAndComment[(head_)[obj_, MUsage[usage_], args___]] := StringJoin[
 	getUsageString[head[obj, args], usage],
 	"\n\n",
-	getFunctionString[head[obj, args]]
+	Block[{PUsage = (Nothing&), MReturn = (#1&)}, getFunctionString[head[obj, args]]]
 ]
 
-getUsageString[_, usage_] := StringJoin["(*\n", usage, "\n*)"];
+getFunctionAndComment[args__] := Block[{PUsage = (Nothing&), MReturn = (#1&)}, getFunctionString[args]]
+
+getUsageString[fun_, usage_] := StringJoin["(*\n", 
+	StringReplace[getFunctionusage[fun, usage], "\n" -> "\n\t"], 
+	"\n*)"
+];
+
+getFunctionusage[fun_, usage_] := Module[
+	{main, params},
+	main = "\t" <> InsertLinebreaks[usage];
+	If[FreeQ[fun, PUsage], Return[main, Module]];
+	params = Cases[fun, {bef__, PUsage[pusage_]} :> pusageString[{bef}, pusage], Infinity];
+	fun /. MReturn[_, x_String] :> AppendTo[params, InsertLinebreaks[StringJoin["Returns ", x]]];
+	main <>"\n\n"<>StringRiffle[params, "\n"]
+]
+
+pusageString[{_, var_String | HoldPattern[Rule[var_String, _]], ___}, pusage_] := "* "<>var<>" - "<>pusage
+pusageString[_, p_String] := p
 
 
 (* ::Subsection::Closed:: *)
@@ -735,6 +765,22 @@ makeLibDef[fspec_, libargs_List, libreturn_] := setNode[
 	]
 ]
 
+(*makeLibDef[fspec_, libargs_List, libreturn_] := setDelayedNode[
+	setNode[
+	symbolNode @ "fun",
+	composeNode[
+		libraryFunctionLoad,
+		{
+			symbolNode["$LibraryName"],
+			stringNode @ StringRiffle[fspec,"_"],
+			listNode @ libargs,
+			libreturn
+		}
+	]
+]
+]*)
+
+
 optionHead[{object_, method_}] := StringJoin[object, method]
 makeOptionsNode[_, {}] := Nothing;
 makeOptionsNode[{functionName_}, options:{__Rule}] := setNode[
@@ -841,6 +887,19 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_] := Module[
 ];
 
 getVoidNode[Managed[x_Symbol]] := composeNode[symbolNode @ CreateManagedLibraryExpression, {stringNode @ x, symbolNode @ x}]
+
+flagConditionedQ[string_] := With[
+	{sym = ToExpression[string, StandardForm, Unevaluated]},
+	Not[
+		FreeQ[DownValues @ sym, HoldPattern[Verbatim[Condition][_, $flag]]]
+	]
+]
+
+$flagConditionedSymbols = Map[Symbol] @ Select[
+	Names[$Context <> "*"],
+	flagConditionedQ
+]
+
 
 End[]
 EndPackage[]

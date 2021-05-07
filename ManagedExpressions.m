@@ -4,12 +4,14 @@
 getManagedID[type_][(type_)[id_]] := id
 getManagedID[type_][l_List] := getManagedID[type] /@ l
 
+normalizeFormattingGrid[ass_?AssociationQ] := KeyValueMap[List, ass]
+normalizeFormattingGrid[x_] := x
 
 getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
 	{icon, grid, sym, validQ},
 	sym = Head @ obj;
 	icon = getIcon @ obj;
-	grid = Catch[obj @ "formattingGrid", _];
+	grid = normalizeFormattingGrid @ Catch[obj @ "formattingGrid", _];
 	validQ = MatchQ[grid, Alternatives[{_}, {Repeated[{_String, _}]}]] || ManagedLibraryExpressionQ[obj];
 	If[MatchQ[grid, Alternatives[{_}, {Repeated[{_String, _}]}]],
 		BoxForm`ArrangeSummaryBox[sym,
