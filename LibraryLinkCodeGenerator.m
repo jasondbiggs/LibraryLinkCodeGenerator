@@ -35,10 +35,10 @@ closeOff[function_] := SetDelayed[
 ]
 
 Attributes[failOnMessage] = {HoldAll}
-failOnMessage[eval_] := eval(*Internal`HandlerBlock[
+failOnMessage[eval_] := Internal`HandlerBlock[
 	{"Message", throw[HoldForm[eval], "message issued"]&},
 	eval
-]*)
+]
 
 
 
@@ -142,29 +142,58 @@ functionTypes = <|
 
 
 $types = Apply[Alternatives, Keys @ functionTypes];
-scanForFunctions[string_] := StringCases[
-	string,
-	RuleDelayed[
-		StringExpression[functiontype:$types,
-			"(", Shortest[name__], ")", Shortest[body__], "END_LIBRARY_FUNCTION"
+$doxyPattern = StringExpression["/**", Shortest @ __, "*/"];
+scanForFunctions[fileString_] := StringCases[
+	fileString,
+	{
+		RuleDelayed[
+			StringExpression[doc:$doxyPattern,
+				WhitespaceCharacter...,
+				str:StringExpression[functiontype:$types,
+					"(", Shortest[name__], ")", Shortest[body__], "END_LIBRARY_FUNCTION"
+				]
+			],
+			scanForFunction[functiontype, name, body, doc]
 		],
-		scanForFunction[functiontype, name, body]
-	]
+		RuleDelayed[
+			str:StringExpression[functiontype:$types,
+				"(", Shortest[name__], ")", Shortest[body__], "END_LIBRARY_FUNCTION"
+			],
+			scanForFunction[functiontype, name, body]
+		]
+	}
 ]
 
-scanForFunction[functiontype_, name_, body_] := Module[
+
+scanForFunction[functiontype_, name_, body_, doc_ : ""] := Module[
 	{
 		ftype = Lookup[functionTypes, functiontype, throw[functiontype,"bad type"]], 
-		arguments = scanForArguments @ body
+		arguments = scanForArguments[body, doc]
 	},
-	checkValidArguments[arguments, {functiontype, name, body}];
+	(*checkValidArguments[arguments, {functiontype, name, body}];*)
 	
-	ftype[StringSplit[StringReplace[name, bef__ ~~ "," ~~ __ :> bef], "_"], Sequence @@ arguments]
+	ftype[StringSplit[StringReplace[name, bef__ ~~ "," ~~ __ :> bef], "_"], arguments]
 ]
 
-scanForArguments[body_String /; StringContainsQ[body, "/**"]] := scanDoxyString[body]
 
-scanForArguments[body_] := Block[{comments, MArgument = Identity, usage},
+
+
+scanForArguments[body_, ""] := Block[
+	{comments, MArgument = Identity, usage},
+	comments = Select[ImportString[body, "Lines"], StringContainsQ["///"]];
+	If[Length[comments] > 0,
+		comments = StringRiffle[
+			{
+				"/**",
+				Sequence @@ Map[StringReplace["///" -> "*"], comments], 
+				"*/"
+			},
+			"\n"
+		];
+		Return[scanForArguments[body, comments], Block];
+		
+	];
+	
 	comments = scanForComments[body];
 	usage = Replace[
 		Select[comments, StringContainsQ["MUsage"]],
@@ -176,6 +205,8 @@ scanForArguments[body_] := Block[{comments, MArgument = Identity, usage},
 		toExpression @ SelectFirst[comments, StringContainsQ["MReturn"], throw[body, "no return"]]
 	}
 ];
+
+scanForArguments[body_, docString_] := scanDoxyString[docString]
 
 scanForComments[body_] := StringCases[
 	body,
@@ -425,14 +456,14 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 			errorHandlingString,
 			enumerateDefinitionString,
 			datastoreString,
-			functionsString,
 			mleString,
+			functionsString,
 			$endCodeBlock
 		},
 		"\n\n"
 	];
 	
-	filestring = StringReplace[filestring,
+	filestring = Global`test = StringReplace[filestring,
 		$beginCodeBlock ~~ __ ~~ $endCodeBlock :> outstring
 	];
 	filestring = StringReplace[filestring,
@@ -440,7 +471,9 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 			"LibraryName" -> libraryName,
 			"FailureTag" -> failureTag,
 			"ThrowingFunction" -> throwingFunction,
-			"CatchingFunction" -> catchingFunction
+			"CatchingFunction" -> catchingFunction,
+			"\\\\\\n" -> "\\\n",
+			"\\n" -> "\n"
 		}
 	];
 
@@ -523,31 +556,86 @@ getFunctionStrings[exprs_] := Check[
 	throw[exprs, "bad exprs"]
 ]
 
-
-getFunctionAndComment[(head_)[obj_, MUsage[usage_], args___]] := StringJoin[
-	getUsageString[head[obj, args], usage],
+getFunctionAndComment[(head_)[obj_, args_]] := StringJoin[
+	getUsageString[head, obj, args],
 	"\n\n",
-	Block[{PUsage = (Nothing&), MReturn = (#1&)}, getFunctionString[head[obj, args]]]
+	getFunctionString[head[obj, args]]
 ]
 
-getFunctionAndComment[args__] := Block[{PUsage = (Nothing&), MReturn = (#1&)}, getFunctionString[args]]
+getUsageString[defineMemberFunction, obj:{___, object_, member_}, args_] := With[
+	{sym = Symbol[object], usage = getFunctionusage[defineMemberFunction, obj, args]},
+	GeneralUtilities`ToPrettyString[
+		Unevaluated @ Set[methodData[sym, member], usage]
+	]
+	
+]
 
-getUsageString[fun_, usage_] := StringJoin["(*\n", 
-	StringReplace[getFunctionusage[fun, usage], "\n" -> "\n\t"], 
+getUsageString[defineExportedFunction, obj:{member_}, args_] := With[
+	{sym = Symbol[member], usage = getFunctionusage[defineExportedFunction, obj, args]},
+	GeneralUtilities`ToPrettyString[
+		Unevaluated @ Set[sym::usage, usage]
+	]
+	
+]
+
+getUsageString[defineConstructor, obj:{___, object_, member_}, args_] := With[
+	{sym = Symbol[object], usage = getFunctionusage[defineConstructor, obj, args]},
+	GeneralUtilities`ToPrettyString[
+		Unevaluated @ Set[sym::usage, usage]
+	]
+	
+]	
+
+getUsageString[Enumerate, ___] := ""
+
+getUsageString[head_, obj_, args_] := StringJoin["(*\n", 
+	StringReplace[getFunctionusage[head, obj, args], "\n" -> "\n\t"], 
 	"\n*)"
 ];
 
-getFunctionusage[fun_, usage_] := Module[
-	{main, params},
-	main = "\t" <> InsertLinebreaks[usage];
-	If[FreeQ[fun, PUsage], Return[main, Module]];
-	params = Cases[fun, {bef__, PUsage[pusage_]} :> pusageString[{bef}, pusage], Infinity];
-	fun /. MReturn[_, x_String] :> AppendTo[params, InsertLinebreaks[StringJoin["Returns ", x]]];
-	main <>"\n\n"<>StringRiffle[params, "\n"]
+
+
+getFunctionusage[head_, obj_, args_] := Block[{hasOptions = False},Module[
+	{main, usage = args["Usage"], params, return = Lookup[args["Return"], "Comment", Nothing]},
+	If[!StringQ[usage] || StringLength[usage] === 0, usage = ""];
+	main = getInputString[head, obj, args] <> " " <> "\\\n" <> usage;
+	params = If[StringQ[#["Comment"]], getParameterUsage[#["ParameterType"], #["Name"], #["Comment"]], Nothing]& /@ args["Parameters"];
+	If[Length[params] > 0, params = StringRiffle[params, "\n"], params = Nothing];
+	StringRiffle[{main, params, return}, "\n\n"]
+]]
+
+getInputString[head_, type_, args_] := Module[
+	{fhead, argstring, params = args["Parameters"], opts = Nothing},
+	If[MemberQ[params[[All, "ParameterType"]], "Option"], 
+		opts = "options";
+		params = Select[params, #["ParameterType"] =!= "Option"&];
+	];
+	params = Append[params[[All, "Name"]], opts];
+	fhead = getHead[head, type];
+	If[Length @ type > 1 && head =!= defineConstructor,
+		PrependTo[params, ToString[Last[type], InputForm]];
+	];
+	argstring = StringRiffle[params, ", "];
+	StringJoin[{fhead, "[", argstring, "]"}]
 ]
 
-pusageString[{_, var_String | HoldPattern[Rule[var_String, _]], ___}, pusage_] := "* "<>var<>" - "<>pusage
-pusageString[_, p_String] := p
+getHead[defineConstructor, {object_, _}] := object;
+getHead[defineMemberFunction, {object_, member_}] := object<>"[..]";
+getHead[defineMemberFunction, {_, object_, member_}] := object<>"[..]";
+getHead[_, {fun_}] := fun;
+getHead[___] := ""
+
+getParameterUsage["Option", name_, comment_] := With[
+	{string = "* " <> ToString[name, InputForm] <> " - " <> comment}, 
+	If[TrueQ[hasOptions],
+		string,
+		hasOptions = True;
+		Sequence @@ {"Options:", string}
+	]
+	
+]
+
+getParameterUsage[type_, name_, comment_] := "* " <> name <> " - " <> comment;
 
 
 (* ::Subsection::Closed:: *)
@@ -578,12 +666,12 @@ getFunctionString[Enumerate[type_String, vals:{__String} | _?AssociationQ]] := G
 	enumerate[type, vals]
 ]
 
-getFunctionNode[function:(head_)[fspec_List, arguments:{___List}, return_]] := Module[
+getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 	{
 		argumentPatterns, libraryArguments, variables, funOptions = {}, 
 		libReturn, libdef, optionsNode, lhs, rhs
 	},
-	argumentPatterns = Replace[
+	argumentPatterns = (*Echo[#, "argPatterns"]&@ *)Replace[
 		getArgPatterns @ function,
 		HoldPattern[{ap___, Verbatim[OptionsPattern][op_List]}] :> (
 			funOptions = op;
@@ -591,17 +679,18 @@ getFunctionNode[function:(head_)[fspec_List, arguments:{___List}, return_]] := M
 		)
 	];
 		
-	libraryArguments = getLibraryArguments @ function;
-	variables = getVariables @ function;
+	libraryArguments = (*Echo[#, "libargs"]&@*)getLibraryArguments @ function;
+	variables = getVariables @ function(* // Echo[#, "variables"]&*);
 	{argumentPatterns, libraryArguments, variables};
-	libReturn = getNode @ transformReturn @ return;
+	libReturn = getNode @ transformReturn @ arguments["Return", "ReturnType"](*  // Echo[#, "libreturn"]&*);
 	libdef = makeLibDef[fspec, libraryArguments, libReturn];
+	If[Head[libdef]=== makeLibDef, Throw[{function, libraryArguments, libReturn},"foo",#1&]];
 	(*If[Length[funOptions] > 0 && MatchQ[fspec, {_, __}],
 		throw[function, "options are not supported for object subvalues"]
 	];*)
-	optionsNode = makeOptionsNode[fspec, funOptions[[All, 2]]];
+	optionsNode = makeOptionsNode[fspec, Rule[#Name, #DefaultValue]& /@ funOptions];
 	lhs = makeLHSNode[fspec, argumentPatterns];
-	rhs = makeRHSNode[fspec, variables, funOptions, return];
+	rhs = makeRHSNode[fspec, variables, funOptions, arguments["Return", "ReturnType"]];
 	compoundExpression @ {
 		optionsNode,
 		withNode[
@@ -616,56 +705,65 @@ closeOff[getFunctionString]
 
 $VoidReturnPattern = _Managed
 ClearAll @ getArgPatterns;
-getArgPatterns[(head_)[{class_, ___, member_}, arguments:{___List}, return_]] := Prepend[getArgPatterns @ arguments, stringNode @ member]
-
-
-getArgPatterns[_[_, arguments:{___List}, _]] := getArgPatterns @ arguments
-getArgPatterns[{arguments:({_, _String}...), parameters: ({_, _Rule} ..)}] := Append[
-	getArgPatterns[{arguments}], OptionsPattern[{parameters}]
+getArgPatterns[(head_)[{class_, ___, member_}, arguments_]] := Prepend[
+	getArgPatterns @ arguments["Parameters"], 
+	stringNode @ member
 ]
 
-getArgPatterns[{arguments:({_, _String}...), optionalArguments: ({_, _String, Except[_argumentPattern]} ..)}] := Join[
-	getArgPatterns[{arguments}], 
-	optionalPatternNode[#2, getNode @ #3]& @@@ {optionalArguments}
-]
-getArgPatterns[args:{{_, _String}...}] := namedBlankNode[#2]& @@@ args;
 
-getArgPatterns[args:{{_, _String, _argumentPattern}...}] := namedPatternNode[#2, getNode[#3[[1]]]]& @@@ args;
+getArgPatterns[_[_List, arguments_Association]] := getArgPatterns @ arguments["Parameters"]
+
+getArgPatterns[params:{___, KeyValuePattern["ParameterType" -> "Option"]}] := Append[
+	getArgPatterns[Select[params, #ParameterType === "Required"&]],
+	OptionsPattern[Select[params, #ParameterType === "Option"&]]
+]
+
+getArgPatterns[params:{___, KeyValuePattern["ParameterType" -> "Optional"]}] := Join[
+	getArgPatterns[Select[params, #ParameterType === "Required"&]],
+	optionalPatternNode[#Name, getNode @ #DefaultValue]& /@ Select[params, #ParameterType === "Optional"&]
+]
+
+getArgPatterns[params:{___, KeyValuePattern["ParameterType" -> "PatternTest"]}] := namedPatternNode[#Name, getNode[#Pattern]]& /@ params;
+
+getArgPatterns[args:{___}] := namedBlankNode[#Name]& /@ args;
+
 closeOff[getArgPatterns]
 
 
 ClearAll @ getLibraryArguments;
-getLibraryArguments[(head_)[{class_, subtype_, member_}, arguments:{___List}, return_]] := getLibraryArguments[
-	head[{member}, Join[{{Integer}, subTypeArgument[subtype]}, arguments], return]
+
+getLibraryArguments[(head_)[func_, arguments_]] := Module[
+	{params = arguments[["Parameters", All, "ArgumentType"]]},
+	Switch[func,
+		{_, _},
+			PrependTo[params, Integer],
+		{_, _, _},
+			params = Join[{Integer, Integer}, params]
+	];
+	If[MatchQ[arguments["Return", "ReturnType"], $VoidReturnPattern],
+		AppendTo[params, Integer]
+	];
+	getNode @* transformLibraryArguments /@ params
+
 ]
 
-getLibraryArguments[(head_)[{class_,member_}, arguments:{___List}, return_]] := getLibraryArguments[
-	head[{member}, Prepend[arguments , {Integer}], return]
-]
-
-getLibraryArguments[(head_)[{function_}, arguments:{___List}, $VoidReturnPattern]] := getLibraryArguments[
-	head[{function}, Append[arguments , {Integer}], "Void"]
-]
-
-getLibraryArguments[(head_)[{function_}, arguments:{___List}, ret : Except[$VoidReturnPattern]]] := 
-	getNode @* transformLibraryArguments /@ arguments[[All, 1]]
 closeOff[getLibraryArguments]
 
 subTypeArgument["RDRingInfo"] := Nothing
 subTypeArgument[_] := {Integer}
 
 ClearAll @ getVariables;
-getVariables[(head_)[functionType_, arguments:{___List}, return_]] := Join[
+getVariables[(_)[functionType_List, arguments_Association]] := Join[
 	Replace[functionType,
 		{
 			{_} :> {},
 			{class_, member_} :> {mleID["expr"]},
-			{class_, subtype_, member_} :> {mleID["expr"], subTypeVariable[subtype]},
+			{class_, subtype_, member_} :> {mleID["expr"], symbolNode @ "idx"},
 			_ :> throw[functionType, "getVariables"]
 		}
 	],
-	getVariables @ arguments,
-	Replace[return,
+	getVariables @ arguments["Parameters"],
+	Replace[arguments["Return", "ReturnType"],
 		{
 			vr: $VoidReturnPattern :> {mleID["res"]}, 
 			_ :> {}
@@ -673,14 +771,14 @@ getVariables[(head_)[functionType_, arguments:{___List}, return_]] := Join[
 	]
 ]
 
-getVariables[{arguments:({_, _String, ___}...), parameters: ({_, _Rule}..)}] := Append[
-	getVariables[{arguments}], applyNode[symbolNode @ Sequence, symbolNode @ "options"]
+getVariables[arguments:{___Association}] := Append[
+	getVariable[#ArgumentType, symbolNode @ #Name]& /@ Select[arguments, #ParameterType =!= "Option" &],
+	If[MemberQ[Lookup[arguments, "ParameterType"], "Option"],
+		applyNode[symbolNode @ Sequence, symbolNode @ "options"],
+		Nothing
+	]
 ]
 
-getVariables[arguments : {{_, _String,___}...}] := Replace[arguments,
-	{type_, name_, ___} :> getVariable[type, symbolNode @ name],
-	{1}
-]
 
 closeOff[getVariables]
 
@@ -841,22 +939,22 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_] := Module[
 						{
 							symbolNode @ optionHead[fun], 
 							listNode @ {symbolNode @ "opts"}, 
-							listNode @ Map[getNode, funOptions[[All, 2, 1]]]
+							listNode @ Map[getNode, funOptions[[All, "Name"]]]
 						},
-						listNode @ Map[getNode, funOptions[[All, 2, 1]]]
+						listNode @ Map[getNode, funOptions[[All, "Name"]]]
 					]
 					
 				]
 			]	
 		];
-		opts = MapAt[preprocessFunctionNode, funOptions, {All, 1}];
+		opts = preprocessFunctionNode /@ funOptions[[All, "ArgumentType"]];
 			
-		If[!MatchQ[opts[[All, 1]] , {Identity ..}],
+		If[!MatchQ[opts , {Identity ..}],
 			res = {res};
-			Replace[Thread[{opts, Range @ Length @ opts}],
+			Replace[Reverse @ Thread[{opts, Range @ Length @ opts}],
 				{
-					{{Identity, _}, _} :> Null,
-					{{function_, _}, n_} :> PrependTo[res,
+					{Identity, _} :> Null,
+					{function_, n_} :> PrependTo[res,
 						setNode[
 							partNode[symbolNode @ "options", n], 
 							composeNode[function, partNode[symbolNode @ "options", n]]
