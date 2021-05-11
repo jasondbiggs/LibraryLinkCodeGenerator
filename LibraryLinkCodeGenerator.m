@@ -2,16 +2,17 @@
 
 BeginPackage["GetFunctions`"];
 
+
+
+WriteLibrarySignatures
+
+
+Begin["`Private`"];
+
 Needs["CodeParser`"]
 Needs["CodeFormatter`"]
 Needs["GeneralUtilities`"]
 
-WriteLibrarySignatures
-getFunctionString
-nodeToString
-throw
-
-Begin["`Private`"];
 
 ClearAll["GetFunctions`Private`*"]
 (* ::Subsection::Closed:: *)
@@ -22,6 +23,11 @@ $inputDir = DirectoryName @ $InputFileName;
 $PacletDirectory = FileNameDrop[$InputFileName, -2]
 
 echo = If[$Notebooks, Echo, (Print[##2];Print[#1])&];
+
+If[!$Notebooks,
+	print[args___] := Print["\033[1;33m", args, "\033[1;0m"];
+]
+
 
 throw[args__] := (
 	echo @ args;
@@ -401,11 +407,16 @@ parenNode[x_] /; $flag := GroupNode[
 
 WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 	{
-		signatures = scanForSignatures /@ sourceFiles, outstring, catchingFunction,
+		signatures, outstring, catchingFunction,
 		symbols, filestring, functionsString, libraryName, enumerateDefinitionString,
 		librarySymbolContext, failureTag, throwingFunction, errorHandlingString,
 		datastoreString, mleString, mles, pretty
 	},
+	
+	print["scanning source files for exported functions"];
+	signatures = scanForSignatures /@ sourceFiles;
+	
+	
 	libraryName = Lookup[params, "LibraryName", throw[$Failed, "no library name"]];
 	librarySymbolContext = Lookup[params, "LibrarySymbolContext", ""];
 	failureTag = Lookup[params, "FailureTag", libraryName <> "FailureTag"];
@@ -419,6 +430,7 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		Flatten[DeleteCases[signatures[[All, 2]],_Enumerate, Infinity]][[All, 1]],
 		librarySymbolContext
 	];
+	print["generating WL function definitions"];
 	functionsString = UsingFrontEnd @ Block[{stringPostProcess = pretty},
 		StringRiffle[
 			fileDefinitionString @@@ signatures,
@@ -463,20 +475,21 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		"\n\n"
 	];
 	
-	filestring = Global`test = StringReplace[filestring,
+	filestring = StringReplace[filestring,
 		$beginCodeBlock ~~ __ ~~ $endCodeBlock :> outstring
 	];
 	filestring = StringReplace[filestring,
 		{
 			"LibraryName" -> libraryName,
-			"FailureTag" -> failureTag,
-			"ThrowingFunction" -> throwingFunction,
-			"CatchingFunction" -> catchingFunction,
+			"LibraryFailureTag" -> failureTag,
+			"ThrowPacletFailure" -> throwingFunction,
+			"CatchPacletFailure" -> catchingFunction,
 			"\\\\\\n" -> "\\\n",
-			"\\n" -> "\n"
+			"\\n" -> "\n",
+			"("~~Shortest[def__]~~"::usage) =" /; StringFreeQ[def, ")"] :> (def <> "::usage =")
 		}
 	];
-
+	print["writing output to ", destinationFile];
 	Export[destinationFile, filestring, "Text"]
 ]
 
@@ -597,8 +610,9 @@ getUsageString[head_, obj_, args_] := StringJoin["(*\n",
 
 getFunctionusage[head_, obj_, args_] := Block[{hasOptions = False},Module[
 	{main, usage = args["Usage"], params, return = Lookup[args["Return"], "Comment", Nothing]},
-	If[!StringQ[usage] || StringLength[usage] === 0, usage = ""];
-	main = getInputString[head, obj, args] <> " " <> "\\\n" <> usage;
+	If[!StringQ[usage] || StringLength[usage] === 0, usage = "", usage = " \\\n" <> usage];
+	main = getInputString[head, obj, args] <> usage;
+	 
 	params = If[StringQ[#["Comment"]], getParameterUsage[#["ParameterType"], #["Name"], #["Comment"]], Nothing]& /@ args["Parameters"];
 	If[Length[params] > 0, params = StringRiffle[params, "\n"], params = Nothing];
 	StringRiffle[{main, params, return}, "\n\n"]

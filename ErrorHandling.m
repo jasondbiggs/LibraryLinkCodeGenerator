@@ -31,17 +31,17 @@ With[
 ]
 
 
-With[{rdtag = $FailureTag},
-	$ThrowingFunction[type_String, params_List] := $ThrowingFunction[type, "MessageParameters" -> params];
-	$ThrowingFunction[type_ ? StringQ, opts:OptionsPattern[createPacletFailure]] := With[
+With[{rdtag = LibraryFailureTag},
+	ThrowPacletFailure[type_String, params_List] := ThrowPacletFailure[type, "MessageParameters" -> params];
+	ThrowPacletFailure[type_ ? StringQ, opts:OptionsPattern[createPacletFailure]] := With[
 		{failure = createPacletFailure[type, opts]},
 		Throw[failure, rdtag, cleanFailure];
 	]
 ]
 
 
-Attributes[$CatchingFunction] = {HoldAll}
-$CatchingFunction[arg_] := Catch[arg, $FailureTag]
+Attributes[CatchPacletFailure] = {HoldAll}
+CatchPacletFailure[arg_] := Catch[arg, LibraryFailureTag]
 	
 
 Options[createPacletFailure] = {
@@ -110,7 +110,7 @@ GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 catchThrowErrors = Function[{arg, caller}, 
 	Replace[Quiet @ arg,
 		{
-			LibraryFunctionError[_, b_] :> $ThrowingFunction[errorCodeToName[b], "CallingFunction" -> caller]
+			LibraryFunctionError[_, b_] :> ThrowPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
 		}
 	],
 	HoldFirst

@@ -4,7 +4,7 @@
 getManagedID[type_][(type_)[id_]] := id
 getManagedID[type_][l_List] := getManagedID[type] /@ l
 
-normalizeFormattingGrid[ass_?AssociationQ] := KeyValueMap[{StringJoin[#1, ": "], #2}&, ass]
+normalizeFormattingGrid[ass_?AssociationQ] := KeyValueMap[{StringJoin[#1, ": "], ElisionsDump`expandablePane @ #2}&, ass]
 normalizeFormattingGrid[x_] := x
 
 getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
@@ -65,14 +65,28 @@ $deleteInstance := $deleteInstance = libraryFunctionLoad[$LibraryName, "deleteIn
 
 methodData = <||>
 
+
 Do[
-	With[
-		{t = type, tstring = ToString[type]},
-		t /: t[n_Integer]["Delete"] /; ManagedLibraryExpressionQ[t[n]] := $deleteInstance[SymbolName[t], n];
-		t /: MakeBoxes[obj$:t[_Integer], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[obj$]] := getMLEBox[obj$, fmt$, True];
-		methodData[type] = <|"Delete" -> StringJoin[tstring, "[..][\"Delete\"] deletes the ", tstring, " object."]|>;
-		Information`AddRegistry[t, getObjectInformation];
-		t /: Information`GetInformationSubset[obj : t[_Integer], props_List] := getObjectInformationSubset[obj, props];
+	If[ListQ[type]
+		,
+		With[
+			{t = Last[type], owner = First[type]},
+			t /: t[{owner[n_Integer],___}]["GetOwner"] := owner[n];
+			t /: MakeBoxes[obj$:t[{owner[n_Integer],___}], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[owner[n]]] := getMLEBox[obj$, fmt$, True];
+			methodData[t] = <|"GetOwner" -> StringJoin["returns the owning ", ToString[owner], " object."]|>;
+			Information`AddRegistry[t, getObjectInformation];
+			t /: Information`GetInformationSubset[obj : t[{owner[n_Integer],___}], props_List] := getObjectInformationSubset[obj, props];
+		]
+		,
+		With[
+			{t = type, tstring = ToString[type]},
+			
+			t /: t[n_Integer]["Delete"] /; ManagedLibraryExpressionQ[t[n]] := $deleteInstance[SymbolName[t], n];
+			t /: MakeBoxes[obj$:t[_Integer], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[obj$]] := getMLEBox[obj$, fmt$, True];
+			methodData[type] = <|"Delete" -> StringJoin[tstring, "[..][\"Delete\"] deletes the ", tstring, " object."]|>;
+			Information`AddRegistry[t, getObjectInformation];
+			t /: Information`GetInformationSubset[obj : t[_Integer], props_List] := getObjectInformationSubset[obj, props];
+		]
 	],
 	{type, $MLEList}
 ]
