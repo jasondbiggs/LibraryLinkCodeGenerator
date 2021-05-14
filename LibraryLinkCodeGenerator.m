@@ -176,7 +176,7 @@ scanForFunction[functiontype_, name_, body_, doc_ : ""] := Module[
 		ftype = Lookup[functionTypes, functiontype, throw[functiontype,"bad type"]], 
 		arguments = scanForArguments[body, doc]
 	},
-	(*checkValidArguments[arguments, {functiontype, name, body}];*)
+	checkValidArguments[arguments, {functiontype, name, body}];
 	
 	ftype[StringSplit[StringReplace[name, bef__ ~~ "," ~~ __ :> bef], "_"], arguments]
 ]
@@ -187,40 +187,26 @@ scanForFunction[functiontype_, name_, body_, doc_ : ""] := Module[
 scanForArguments[body_, ""] := Block[
 	{comments, MArgument = Identity, usage},
 	comments = Select[ImportString[body, "Lines"], StringContainsQ["///"]];
-	If[Length[comments] > 0,
-		comments = StringRiffle[
-			{
-				"/**",
-				Sequence @@ Map[StringReplace["///" -> "*"], comments], 
-				"*/"
-			},
-			"\n"
-		];
-		Return[scanForArguments[body, comments], Block];
-		
+	If[Length[comments] === 0,
+		throw[body, "no arguments found"]
 	];
+	(* convert the inline comments to the block-style doxygen comment and parse that *)
 	
-	comments = scanForComments[body];
-	usage = Replace[
-		Select[comments, StringContainsQ["MUsage"]],
-		{{x_,___} :> toExpression[x], _ :> Nothing}
+	comments = StringRiffle[
+		{
+			"/**",
+			Sequence @@ Map[StringReplace["///" -> "*"], comments], 
+			"*/"
+		},
+		"\n"
 	];
-	{
-		usage,
-		Map[toExpression, Select[comments, StringContainsQ["MArgument"]]],
-		toExpression @ SelectFirst[comments, StringContainsQ["MReturn"], throw[body, "no return"]]
-	}
+	scanForArguments[body, comments]
+	
 ];
 
 scanForArguments[body_, docString_] := scanDoxyString[docString]
 
-scanForComments[body_] := StringCases[
-	body,
-	{
-		StringExpression["//", Shortest[c__], EndOfLine] :> StringTrim[c],
-		StringExpression["/*", Shortest[c__], "*/"] :> StringTrim[c]
-	}
-]
+
 
 
 (*scanForEnumTypes[body_ /; StringContainsQ[body, "Enumerate["]] := With[
@@ -246,11 +232,40 @@ getLibraryEnums[type_, list_] := Enumerate[type,
 ]
 
 
-checkValidArguments[arguments_, {functiontype_, name_, body_}] := If[
-	Last[arguments] === MReturn["Void"] && StringContainsQ[body, "mngr.set"]
-	,
-	throw[name, "returning a value from a void function"]
+checkValidArguments[arguments_, {functiontype_, name_, body_}] := Module[
+	{returnType, params, argCount},
+	params = Lookup[arguments, "Parameters", throw[name, "no parameters"]];
+	argCount = Length[params];
+	
+	If[MatchQ[functiontype, "CONSTRUCTOR_FUNCTION" | "MEMBER_FUNCTION"],
+		argCount++
+	];
+	
+	
+	returnType = Lookup[arguments, "Return", throw[name, "no return"]];
+	returnType = Lookup[returnType, "ReturnType", throw[name, "no return type"]];
+	If[Head[returnType] === PostProcessed, 
+		If[Length[returnType] =!= 2, throw[name, "bad post process"]];
+		returnType = First[returnType]
+	];
+	Switch[functiontype,
+		"CONSTRUCTOR_FUNCTION",
+			If[!MatchQ[returnType, _Managed], throw[name, "must return managed object"]],
+		"MEMBER_FUNCTION",
+			argCount++
+	];
+	Switch[returnType,
+		_Managed,
+			If[StringFreeQ[body, "createInstance"], throw[name, "must call createInstance to return managed object"]];
+			If[!StringFreeQ[body, "mngr.set"], throw[name, "cannot set return value in function returning managed object"]];
+			argCount++,
+		"Boolean",
+			If[StringFreeQ[body, "mngr.setBoolean"], throw[name, "no setBoolean call"]]
+	]
 ]
+
+
+
 
 (* ::Subsection::Closed:: *)
 (*CodeParser stuff*)
@@ -274,7 +289,14 @@ stringNode[sym_Symbol] /; $flag := stringNode @ SymbolName @ sym;
 stringNode[sym_String] /; $flag := LeafNode[String, ToString[sym, InputForm], <||>];
 
 symbolNode[sym_String] /; $flag := LeafNode[Symbol, sym, <||>];
-symbolNode[sym_Symbol] /; $flag := symbolNode @ SymbolName @ sym;
+symbolNode[sym_Symbol] /; $flag := symbolNode @ If[MemberQ[$ElidedContexts,Context[sym]], 
+	SymbolName[Unevaluated[sym]], 
+	Context[sym] <> SymbolName[Unevaluated[sym]]
+]
+
+
+
+symbolNode @ SymbolName @ sym;
 
 numberNode[num_Integer] /; $flag := LeafNode[Head @ num, ToString[num,InputForm], <||>]
 
@@ -412,9 +434,11 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		librarySymbolContext, failureTag, throwingFunction, errorHandlingString,
 		datastoreString, mleString, mles, pretty
 	},
-	
-	print["scanning source files for exported functions"];
-	signatures = scanForSignatures /@ sourceFiles;
+	getCustomTypes[sourceFiles];
+	pb = progbar[Length[sourceFiles], "scanning source files for exported functions"];
+	nn = 0;
+	signatures = (pb[++nn];scanForSignatures[#])& /@ sourceFiles;
+	Print["",""];
 	
 	
 	libraryName = Lookup[params, "LibraryName", throw[$Failed, "no library name"]];
@@ -430,13 +454,15 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		Flatten[DeleteCases[signatures[[All, 2]],_Enumerate, Infinity]][[All, 1]],
 		librarySymbolContext
 	];
-	print["generating WL function definitions"];
+	pb = progbar[Length[signatures], "generating WL function definitions"];
+	nn = 0;
 	functionsString = UsingFrontEnd @ Block[{stringPostProcess = pretty},
 		StringRiffle[
-			fileDefinitionString @@@ signatures,
+			(pb[++nn];fileDefinitionString[##])& @@@ signatures,
 			"\n"
 		]
 	];
+	Print[""];
 	filestring = addSymbolDeclarations[Import[destinationFile, "Text"], symbols];
 	
 	
@@ -489,7 +515,7 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 			"("~~Shortest[def__]~~"::usage) =" /; StringFreeQ[def, ")"] :> (def <> "::usage =")
 		}
 	];
-	print["writing output to ", destinationFile];
+	print["writing output to ", FileNameTake @ destinationFile];
 	Export[destinationFile, filestring, "Text"]
 ]
 
@@ -607,13 +633,13 @@ getUsageString[head_, obj_, args_] := StringJoin["(*\n",
 ];
 
 
-
 getFunctionusage[head_, obj_, args_] := Block[{hasOptions = False},Module[
 	{main, usage = args["Usage"], params, return = Lookup[args["Return"], "Comment", Nothing]},
 	If[!StringQ[usage] || StringLength[usage] === 0, usage = "", usage = " \\\n" <> usage];
 	main = getInputString[head, obj, args] <> usage;
 	 
-	params = If[StringQ[#["Comment"]], getParameterUsage[#["ParameterType"], #["Name"], #["Comment"]], Nothing]& /@ args["Parameters"];
+	params = getParameterUsage[#["ParameterType"], #["Name"], #["ArgumentDescription"], #["Comment"]]& /@ args["Parameters"];
+	If[Length[Select[args["Parameters"], #["ParameterType"] =!= "Option"&]] > 0, PrependTo[params, "Variables:"]];
 	If[Length[params] > 0, params = StringRiffle[params, "\n"], params = Nothing];
 	StringRiffle[{main, params, return}, "\n\n"]
 ]]
@@ -634,13 +660,19 @@ getInputString[head_, type_, args_] := Module[
 ]
 
 getHead[defineConstructor, {object_, _}] := object;
-getHead[defineMemberFunction, {object_, member_}] := object<>"[..]";
-getHead[defineMemberFunction, {_, object_, member_}] := object<>"[..]";
+getHead[defineMemberFunction, {object_, member_}] := ToLowerCase[object];
+getHead[defineMemberFunction, {_, object_, member_}] := ToLowerCase[object];
 getHead[_, {fun_}] := fun;
 getHead[___] := ""
 
-getParameterUsage["Option", name_, comment_] := With[
-	{string = "* " <> ToString[name, InputForm] <> " - " <> comment}, 
+getParameterUsage["Option", name_, description_, comment_] := Module[
+	{string = "* " <> ToString[name]},
+	If[StringQ[description] && StringLength[description] > 0,
+		string = string <> " - " <> description
+	];
+	If[StringQ[comment] && StringLength[comment] > 0,
+		string = string <> " - " <> comment
+	]; 
 	If[TrueQ[hasOptions],
 		string,
 		hasOptions = True;
@@ -649,8 +681,17 @@ getParameterUsage["Option", name_, comment_] := With[
 	
 ]
 
-getParameterUsage[type_, name_, comment_] := "* " <> name <> " - " <> comment;
-
+getParameterUsage[type_, name_, description_, comment_] := Module[
+	{string = "* " <> ToString[name]},
+	If[StringQ[description] && StringLength[description] > 0,
+		string = string <> " - " <> description
+	];
+	If[StringQ[comment] && StringLength[comment] > 0,
+		string = string <> " - " <> comment
+	]; 
+	string
+	
+]
 
 (* ::Subsection::Closed:: *)
 (*getFunctionStrings*)
@@ -748,6 +789,7 @@ ClearAll @ getLibraryArguments;
 
 getLibraryArguments[(head_)[func_, arguments_]] := Module[
 	{params = arguments[["Parameters", All, "ArgumentType"]]},
+	params = Replace[params, PreProcessed[x_, _] :> x, {1}];
 	Switch[func,
 		{_, _},
 			PrependTo[params, Integer],
@@ -798,11 +840,11 @@ closeOff[getVariables]
 
 ClearAll[getVariable]
 preprocessFunctionNode[enum[type_]] := composeNode[symbolNode @ "enum", stringNode @ type]
-preprocessFunctionNode["RawJSON"] := symbolNode @ "Developer`WriteRawJSONString"
 preprocessFunctionNode[type_Managed] := composeNode["getManagedID", getNode @ First @ type]
 preprocessFunctionNode[{type_Managed, 1}] := composeNode["getManagedID",getNode @ First @ type]
 preprocessFunctionNode["DataStore"] := symbolNode @ "toDataStore"
 preprocessFunctionNode["StringList"] := composeNode[symbolNode @ "Apply", symbolNode @ "Developer`DataStore"]
+preprocessFunctionNode[PreProcessed[type_, fun_]] := getNode[fun]
 preprocessFunctionNode[_] := Identity
 
 getVariable[type_, name_] := Replace[preprocessFunctionNode[type],
@@ -823,12 +865,11 @@ subTypeVariable[_] := symbolNode @ "idx"
 
 
 postProcess[enum[type_String]] := Function[composeNode[composeNode[symbolNode @ "enum", stringNode @ type], #]]
-postProcess["RawJSON"] := Function[composeNode[symbolNode @ "Developer`ReadRawJSONString", #]]
 postProcess["DataStore"] := Function[composeNode[symbolNode @ "fromDataStore", #]]
 postProcess[PostProcessed[type_, fun_(* : (_Function | _Symbol)*)]] := Function[
 	composeNode[getNode @ fun, postProcess[type][#]]
 ]
-(*postProcess[PostProcessed[type_, fun_]] := throw[fun, "should be a function"]*)
+
 
 postProcess[$VoidReturnPattern] := Function[
 	composeNode[
