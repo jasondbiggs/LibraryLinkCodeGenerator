@@ -4,14 +4,18 @@ inputAliases = <|
 |>
 
 typeDescriptions = <|
-	Integer -> "integer",
-	Real -> "real number",
-	String | "UTF8String" -> "string",
+	Integer -> "Integer",
+	Real -> "Real",
+	String | "UTF8String" -> "String",
+	"Void" -> "Null",
 	"DataStore" -> "datastore",
-	Managed[x_] :> StringJoin[ToString[x], " object"],
-	{type_, 1} :> StringJoin["list of ", Replace[getTypeDescription[type], Except[_String] :> ""], "s"],
-	{type_, 2} :> StringJoin["matrix of ", Replace[getTypeDescription[type], Except[_String] :> ""], "s"],
+	Managed[x_] :> StringJoin[Replace[x, {s_String :> s, s_Symbol :> SymbolName[s]}], " object"],
+	{type_, 1} :> StringJoin[Replace[getTypeDescription[type], Except[_String] :> ""], " vector"],
+	{type_, 2} :> StringJoin[Replace[getTypeDescription[type], Except[_String] :> ""], " matrix"],
 	{type_, n_} :> StringJoin["rank-", IntegerString[n], " tensor of ", Replace[getTypeDescription[type], Except[_String] :> ""], "s"],
+	PostProcessed[_, _, desc_] :> desc,
+	PostProcessed[x_, _] :> getTypeDescription[x],
+	enum[x_] :> x,
 	x_ :> ToString[x]
 
 |>
@@ -32,8 +36,11 @@ scanDoxyString[body_] := Module[
 	res = <|"Usage" -> StringRiffle[usage, "\n"]|>;
 	res["Parameters"] = Cases[parsed, {"@param", param_} :> parseDoxyParam[param]];
 	res["Return"] = FirstCase[parsed, {"@return", ret:{__String}} :> parseReturn[ret], throw[body, "no return"]];
+	FirstCase[
+		parsed,
+		{"@note", {note__String}} :> (res["Note"] = StringRiffle[note, "\n"])
+	];
 	res
-	
 ]
 
 
@@ -101,7 +108,10 @@ parseDoxyParam[{var_, comment___}] := Module[
 ]
 
 
-parseReturn[{return_, comment___}] := Module[{res = <|"ReturnType" -> Replace[toExpression[return], outputAliases]|>},
+parseReturn[{return_, comment___}] := Module[
+	{res = <|"ReturnType" -> toExpression[return]|>},
+	res["ReturnDescription"] = Echo[getTypeDescription[Echo[res["ReturnType"],"b"]],"a"];
+	res["ReturnType"] = Replace[res["ReturnType"], outputAliases];
 	If[Length[{comment}] > 0, res["Comment"] = StringRiffle[{comment}, "\n"]];
 	res
 ]
@@ -148,12 +158,12 @@ scanForComments[body_] := StringCases[
 ]
 
 
-progbar[width_, title_] := Function[{ndx},
+progbar[width_, title_] := ({##} /. {ndx_, last_ : False} :>
     print[ "  " <> title<>"\n  [" <>
             StringJoin@ConstantArray["*", ndx] <>
             StringJoin@ConstantArray[" ", width-ndx] <>
             "]" <> ToString[Round[100*ndx/width,1]] <>
-            "%   \n\033[3A" ]
-]
+            If[last, "", "%   \n\033[3A"] ])&
+
 
 

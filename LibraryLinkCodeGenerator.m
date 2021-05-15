@@ -245,7 +245,7 @@ checkValidArguments[arguments_, {functiontype_, name_, body_}] := Module[
 	returnType = Lookup[arguments, "Return", throw[name, "no return"]];
 	returnType = Lookup[returnType, "ReturnType", throw[name, "no return type"]];
 	If[Head[returnType] === PostProcessed, 
-		If[Length[returnType] =!= 2, throw[name, "bad post process"]];
+		If[!MatchQ[Length[returnType], 2 | 3], throw[name, "bad post process"]];
 		returnType = First[returnType]
 	];
 	Switch[functiontype,
@@ -425,7 +425,14 @@ parenNode[x_] /; $flag := GroupNode[
 (* ::Subsection::Closed:: *)
 (*Write WL source files*)
 
-
+If[
+	Not[
+		And[UnsameQ[Part[GetEnvironment @ "pbwidth", 2], None],
+			IntegerQ[pbwidth = ToExpression[Part[GetEnvironment @ "pbwidth", 2]]]
+		]
+	],
+	pbwidth = 50
+]
 
 WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 	{
@@ -435,10 +442,10 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		datastoreString, mleString, mles, pretty
 	},
 	getCustomTypes[sourceFiles];
-	pb = progbar[Length[sourceFiles], "scanning source files for exported functions"];
+	pb = progbar[pbwidth, "scanning source files"];
 	nn = 0;
-	signatures = (pb[++nn];scanForSignatures[#])& /@ sourceFiles;
-	Print["",""];
+	signatures = (pb[Floor[++nn * pbwidth/Length[sourceFiles]]];scanForSignatures[#])& /@ sourceFiles;
+	pb[pbwidth, True];
 	
 	
 	libraryName = Lookup[params, "LibraryName", throw[$Failed, "no library name"]];
@@ -454,15 +461,15 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 		Flatten[DeleteCases[signatures[[All, 2]],_Enumerate, Infinity]][[All, 1]],
 		librarySymbolContext
 	];
-	pb = progbar[Length[signatures], "generating WL function definitions"];
+	pb = progbar[pbwidth, "generating WL function definitions"];
 	nn = 0;
 	functionsString = UsingFrontEnd @ Block[{stringPostProcess = pretty},
 		StringRiffle[
-			(pb[++nn];fileDefinitionString[##])& @@@ signatures,
+			(pb[Floor[++nn * pbwidth/Length[signatures]]];fileDefinitionString[##])& @@@ signatures,
 			"\n"
 		]
 	];
-	Print[""];
+	pb[pbwidth, True];
 	filestring = addSymbolDeclarations[Import[destinationFile, "Text"], symbols];
 	
 	
@@ -634,15 +641,30 @@ getUsageString[head_, obj_, args_] := StringJoin["(*\n",
 
 
 getFunctionusage[head_, obj_, args_] := Block[{hasOptions = False},Module[
-	{main, usage = args["Usage"], params, return = Lookup[args["Return"], "Comment", Nothing]},
+	{main, usage = args["Usage"], params, return, note = Lookup[args, "Note", Nothing]},
+	If[StringQ[note], note = "Note: " <> note];
 	If[!StringQ[usage] || StringLength[usage] === 0, usage = "", usage = " \\\n" <> usage];
 	main = getInputString[head, obj, args] <> usage;
-	 
-	params = getParameterUsage[#["ParameterType"], #["Name"], #["ArgumentDescription"], #["Comment"]]& /@ args["Parameters"];
+	params = getParameterUsage[#["ParameterType"], #["Name"], #["ArgumentDescription"], #["Comment"], #["DefaultValue"]]& /@ args["Parameters"];
+	return = getReturnUsage[args["Return"]];
 	If[Length[Select[args["Parameters"], #["ParameterType"] =!= "Option"&]] > 0, PrependTo[params, "Variables:"]];
 	If[Length[params] > 0, params = StringRiffle[params, "\n"], params = Nothing];
 	StringRiffle[{main, params, return}, "\n\n"]
 ]]
+
+getReturnUsage[return_] := Module[
+	{res},
+	If[StringQ[res = return["ReturnDescription"]]
+		,
+		res = "Returns: "<>res;
+		If[StringQ[return["Comment"]],
+			res = res <> " - " <> return["Comment"]
+		]
+		,
+		res = Nothing
+	];
+	res
+]
 
 getInputString[head_, type_, args_] := Module[
 	{fhead, argstring, params = args["Parameters"], opts = Nothing},
@@ -665,10 +687,10 @@ getHead[defineMemberFunction, {_, object_, member_}] := ToLowerCase[object];
 getHead[_, {fun_}] := fun;
 getHead[___] := ""
 
-getParameterUsage["Option", name_, description_, comment_] := Module[
-	{string = "* " <> ToString[name]},
+getParameterUsage["Option", name_, description_, comment_, default_] := Module[
+	{string = ToString[name, InputForm]},
 	If[StringQ[description] && StringLength[description] > 0,
-		string = string <> " - " <> description
+		string = string <> " - " <> wrapWithDefault[description, default]
 	];
 	If[StringQ[comment] && StringLength[comment] > 0,
 		string = string <> " - " <> comment
@@ -681,10 +703,13 @@ getParameterUsage["Option", name_, description_, comment_] := Module[
 	
 ]
 
-getParameterUsage[type_, name_, description_, comment_] := Module[
-	{string = "* " <> ToString[name]},
+wrapWithDefault[description_, _Missing] := description
+wrapWithDefault[description_, default_] := "(" <> description <> " : " <> ToString[default, InputForm] <>")"
+
+getParameterUsage[type_, name_, description_, comment_, default_] := Module[
+	{string = ToString[name]},
 	If[StringQ[description] && StringLength[description] > 0,
-		string = string <> " - " <> description
+		string = string <> " - " <> wrapWithDefault[description, default]
 	];
 	If[StringQ[comment] && StringLength[comment] > 0,
 		string = string <> " - " <> comment
@@ -866,7 +891,7 @@ subTypeVariable[_] := symbolNode @ "idx"
 
 postProcess[enum[type_String]] := Function[composeNode[composeNode[symbolNode @ "enum", stringNode @ type], #]]
 postProcess["DataStore"] := Function[composeNode[symbolNode @ "fromDataStore", #]]
-postProcess[PostProcessed[type_, fun_(* : (_Function | _Symbol)*)]] := Function[
+postProcess[PostProcessed[type_, fun_, ___]] := Function[
 	composeNode[getNode @ fun, postProcess[type][#]]
 ]
 
@@ -889,7 +914,7 @@ transformReturn = ReplaceAll[
 		"RawJSON" -> String,
 		_Managed -> "Void",
 		_enum -> Integer,
-		PostProcessed[a_,_] :> transformReturn[a]
+		PostProcessed[a_,___] :> transformReturn[a]
 	}
 ]
 

@@ -35,8 +35,17 @@ getObjectInformation[obj_?ManagedLibraryExpressionQ] := Module[
 	{info = obj["information"], methods = methodData[Head[obj]]},
 	If[!AssociationQ[info], Return[$Failed, Module]];
 	info["ObjectType"] = Head @ obj;
-	If[AssociationQ[methods], info["MethodNames"] = Keys @ methods];
+	If[AssociationQ[methods], info["Methods"] = getMethodButton[Head[obj], #]& /@ Keys[methods]];
 	info
+]
+
+
+getMethodButton[obj_, name_] := name
+
+getMethodButton[obj_, name_] /; $Notebooks && StringQ[methodData[obj, name]] := Button[
+	Style[name, "InformationGridButton"],
+	Print @ methodData[obj, name],
+	Appearance -> None
 ]
 
 getObjectInformation[___] := $Failed
@@ -76,6 +85,13 @@ Do[
 			methodData[t] = <|"GetOwner" -> StringJoin["returns the owning ", ToString[owner], " object."]|>;
 			Information`AddRegistry[t, getObjectInformation];
 			t /: Information`GetInformationSubset[obj : t[{owner[n_Integer],___}], props_List] := getObjectInformationSubset[obj, props];
+			t /: Information`OpenerViewQ[t, "Methods"] := True;
+			Replace[methodData[t],
+				ass_?AssociationQ :> (
+				t /: (_t)["Methods"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
+					
+				)
+			]
 		]
 		,
 		With[
@@ -86,6 +102,13 @@ Do[
 			methodData[type] = <|"Delete" -> StringJoin[tstring, "[..][\"Delete\"] deletes the ", tstring, " object."]|>;
 			Information`AddRegistry[t, getObjectInformation];
 			t /: Information`GetInformationSubset[obj : t[_Integer], props_List] := getObjectInformationSubset[obj, props];
+			t /: Information`OpenerViewQ[t, "Methods"] := True;
+			Replace[methodData[t],
+				ass_?AssociationQ :> (
+				t /: (_t)["Methods"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
+					
+				)
+			]
 		]
 	],
 	{type, $MLEList}
