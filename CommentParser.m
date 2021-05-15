@@ -110,7 +110,7 @@ parseDoxyParam[{var_, comment___}] := Module[
 
 parseReturn[{return_, comment___}] := Module[
 	{res = <|"ReturnType" -> toExpression[return]|>},
-	res["ReturnDescription"] = Echo[getTypeDescription[Echo[res["ReturnType"],"b"]],"a"];
+	res["ReturnDescription"] = getTypeDescription[res["ReturnType"]];
 	res["ReturnType"] = Replace[res["ReturnType"], outputAliases];
 	If[Length[{comment}] > 0, res["Comment"] = StringRiffle[{comment}, "\n"]];
 	res
