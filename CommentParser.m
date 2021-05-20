@@ -120,18 +120,18 @@ parseReturn[{return_, comment___}] := Module[
 addCustomType[type_, None, output_, description_ : ""] := (
 	inputAliases[type] := throw[type, " type is not set up for input"];
 	outputAliases[type] = output;
-	typeDescriptions[type] = description;
+	getTypeDescription[type] = description;
 )
 addCustomType[type_, input_, None, description_ : ""] := (
 	inputAliases[type] = input;
 	outputAliases[type] := throw[type, " type is not set up for output"];
-	typeDescriptions[type] = description;
+	getTypeDescription[type] = description;
 )
 
 addCustomType[type_, input_, output_, description_ : ""] := (
 	inputAliases[type] = input;
 	outputAliases[type] = output;
-	typeDescriptions[type] = description;
+	getTypeDescription[type] = description;
 )
 
 getCustomTypes[files_] := Module[

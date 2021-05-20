@@ -821,7 +821,7 @@ getLibraryArguments[(head_)[func_, arguments_]] := Module[
 		{_, _, _},
 			params = Join[{Integer, Integer}, params]
 	];
-	If[MatchQ[arguments["Return", "ReturnType"], $VoidReturnPattern],
+	If[MatchQ[arguments["Return", "ReturnType"], $VoidReturnPattern | PostProcessed[_Managed,___]],
 		AppendTo[params, Integer]
 	];
 	getNode @* transformLibraryArguments /@ params
@@ -846,7 +846,7 @@ getVariables[(_)[functionType_List, arguments_Association]] := Join[
 	getVariables @ arguments["Parameters"],
 	Replace[arguments["Return", "ReturnType"],
 		{
-			vr: $VoidReturnPattern :> {mleID["res"]}, 
+			vr: ($VoidReturnPattern | PostProcessed[_Managed,___]) :> {mleID["res"]}, 
 			_ :> {}
 		}
 	]
@@ -1049,7 +1049,7 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_] := Module[
 			
 		];
 	];
-	If[MatchQ[return, $VoidReturnPattern]
+	If[MatchQ[return, $VoidReturnPattern | PostProcessed[_Managed,__]]
 		,
 		AppendTo[definitions,
 			setNode[
@@ -1064,7 +1064,7 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_] := Module[
 	res
 ];
 
-getVoidNode[Managed[x_Symbol]] := composeNode[symbolNode @ CreateManagedLibraryExpression, {stringNode @ x, symbolNode @ x}]
+getVoidNode[Managed[x_Symbol] | PostProcessed[Managed[x_Symbol],__]] := composeNode[symbolNode @ CreateManagedLibraryExpression, {stringNode @ x, symbolNode @ x}]
 
 flagConditionedQ[string_] := With[
 	{sym = ToExpression[string, StandardForm, Unevaluated]},

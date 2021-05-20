@@ -35,7 +35,7 @@ getObjectInformation[obj_?ManagedLibraryExpressionQ] := Module[
 	{info = obj["information"], methods = methodData[Head[obj]]},
 	If[!AssociationQ[info], Return[$Failed, Module]];
 	info["ObjectType"] = Head @ obj;
-	If[AssociationQ[methods], info["Methods"] = getMethodButton[Head[obj], #]& /@ Keys[methods]];
+	If[AssociationQ[methods], info["Operations"] = getMethodButton[Head[obj], #]& /@ Keys[methods]];
 	info
 ]
 
@@ -85,10 +85,10 @@ Do[
 			methodData[t] = <|"GetOwner" -> StringJoin["returns the owning ", ToString[owner], " object."]|>;
 			Information`AddRegistry[t, getObjectInformation];
 			t /: Information`GetInformationSubset[obj : t[{owner[n_Integer],___}], props_List] := getObjectInformationSubset[obj, props];
-			t /: Information`OpenerViewQ[t, "Methods"] := True;
+			t /: Information`OpenerViewQ[t, "Operations"] := True;
 			Replace[methodData[t],
 				ass_?AssociationQ :> (
-				t /: (_t)["Methods"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
+				t /: (_t)["Operations"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
 					
 				)
 			]
@@ -102,10 +102,10 @@ Do[
 			methodData[type] = <|"Delete" -> StringJoin[tstring, "[..][\"Delete\"] deletes the ", tstring, " object."]|>;
 			Information`AddRegistry[t, getObjectInformation];
 			t /: Information`GetInformationSubset[obj : t[_Integer], props_List] := getObjectInformationSubset[obj, props];
-			t /: Information`OpenerViewQ[t, "Methods"] := True;
+			t /: Information`OpenerViewQ[t, "Operations"] := True;
 			Replace[methodData[t],
 				ass_?AssociationQ :> (
-				t /: (_t)["Methods"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
+				t /: (_t)["Operations"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
 					
 				)
 			]
