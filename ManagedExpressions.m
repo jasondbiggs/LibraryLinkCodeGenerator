@@ -4,30 +4,37 @@
 getManagedID[type_][(type_)[id_]] := id
 getManagedID[type_][l_List] := getManagedID[type] /@ l
 
-normalizeFormattingGrid[ass_?AssociationQ] := KeyValueMap[{StringJoin[#1, ": "], ElisionsDump`expandablePane @ #2}&, ass]
+normalizeFormattingGrid[ass_?AssociationQ] := KeyValueMap[BoxForm`SummaryItem @ {StringJoin[#1, ": "], ElisionsDump`expandablePane @ #2}&, ass]
+normalizeFormattingGrid[ass:{__?AssociationQ}] := normalizeFormattingGrid /@ ass
 normalizeFormattingGrid[x_] := x
 
+$gridPattern = {__BoxForm`SummaryItem} | {{_BoxForm`SummaryItem,___}..}
+
+addMethods[dat_ : $gridPattern, head_] := Module[
+	{methods = methodData[head]},
+	If[AssociationQ[methods],
+		methods = BoxForm`SummaryItem[{"Operations: ", getMethodButton[head, #]& /@ Keys[methods]}];
+		If[ListQ[dat[[1]]], methods = {methods, SpanFromLeft}];
+		Append[dat, methods]
+		,
+		dat
+	]
+]
+addMethods[dat_,___] := dat
+
 getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
-	{icon, grid, sym, validQ},
+	{icon, grid, sym},
 	sym = Head @ obj;
 	icon = getIcon @ obj;
-	grid = getObjectInformation[obj];
-	If[AssociationQ[grid] && ManagedLibraryExpressionQ[obj],
-		grid["ObjectType"] =.
+	grid = addMethods[normalizeFormattingGrid @obj["information"], Head @ obj];
+	If[!MatchQ[grid, $gridPattern] && ManagedLibraryExpressionQ[obj],
+		grid = {BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}}
 	];
-	grid = normalizeFormattingGrid @ grid;
-	validQ = MatchQ[grid, Alternatives[{_}, {Repeated[{_String, _}]}]] || ManagedLibraryExpressionQ[obj];
-	If[MatchQ[grid, Alternatives[{_}, {Repeated[{_String, _}]}]],
-		BoxForm`ArrangeSummaryBox[sym,
-			obj, icon, Map[BoxForm`SummaryItem, Part[grid, Span[1, UpTo @ 2]]],
-			Map[BoxForm`SummaryItem, grid],
-			fmt, "CompleteReplacement" -> True, "Interpretable" -> interpretable
-		],
-		BoxForm`ArrangeSummaryBox[sym,
-			obj, icon, {BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}},
-			{}, fmt, "Interpretable" -> interpretable
-		]
-	] /; validQ
+	BoxForm`ArrangeSummaryBox[sym,
+		obj, icon, Part[grid, Span[1, UpTo @ 2]],
+		grid,
+		fmt, "CompleteReplacement" -> True, "Interpretable" -> interpretable
+	] /; MatchQ[grid, $gridPattern]
 ];
 getIcon[___] := None;
 
