@@ -444,7 +444,11 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 	getCustomTypes[sourceFiles];
 	pb = progbar[pbwidth, "scanning source files"];
 	nn = 0;
-	signatures = (pb[Floor[++nn * pbwidth/Length[sourceFiles]]];scanForSignatures[#])& /@ sourceFiles;
+	
+	Block[{throwAlways = TrueQ @ Lookup[params, "AlwaysThrow", False]},
+		signatures = (pb[Floor[++nn * pbwidth/Length[sourceFiles]]];scanForSignatures[#])& /@ sourceFiles;
+	];
+	
 	pb[pbwidth, True];
 	
 	
@@ -608,13 +612,18 @@ getFunctionAndComment[(head_)[obj_, args_]] := StringJoin[
 	getFunctionString[head[obj, args]]
 ]
 
-getUsageString[defineMemberFunction, obj:{___, object_, member_}, args_] := With[
-	{sym = Symbol[object], usage = getFunctionusage[defineMemberFunction, obj, args]},
-	GeneralUtilities`ToPrettyString[
-		Unevaluated @ Set[methodData[sym, member], usage]
+getUsageString[defineMemberFunction, obj:{___, object_, member_}, args_] := Module[
+	{rhs = <|"Usage" -> getFunctionusage[defineMemberFunction, obj, args]|>, vars},
+	vars = Select[args["Parameters"], #["ParameterType"] === "Required" &];
+	If[Length[vars] > 0, rhs["Parameters"] = Lookup[vars, "Name"]];
+	With[
+	{sym = Symbol[object], md = rhs},
+		GeneralUtilities`ToPrettyString[
+			Unevaluated @ Set[methodData[sym, member], md]
+		]
 	]
-	
 ]
+
 
 getUsageString[defineExportedFunction, obj:{member_}, args_] := With[
 	{sym = Symbol[member], usage = getFunctionusage[defineExportedFunction, obj, args]},
@@ -770,7 +779,7 @@ getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 	];*)
 	optionsNode = makeOptionsNode[fspec, Rule[#Name, #DefaultValue]& /@ funOptions];
 	lhs = makeLHSNode[fspec, argumentPatterns];
-	rhs = makeRHSNode[fspec, variables, funOptions, arguments["Return", "ReturnType"]];
+	rhs = makeRHSNode[fspec, variables, funOptions, arguments["Return", "ReturnType"], TrueQ @ arguments["ThrowFailure"]];
 	compoundExpression @ {
 		optionsNode,
 		withNode[
@@ -838,15 +847,15 @@ getVariables[(_)[functionType_List, arguments_Association]] := Join[
 	Replace[functionType,
 		{
 			{_} :> {},
-			{class_, member_} :> {mleID["expr"]},
-			{class_, subtype_, member_} :> {mleID["expr"], symbolNode @ "idx"},
+			{class_, member_} :> {mleID[class, "expr"]},
+			{class_, subtype_, member_} :> {mleID[class, "expr"], symbolNode @ "idx"},
 			_ :> throw[functionType, "getVariables"]
 		}
 	],
 	getVariables @ arguments["Parameters"],
 	Replace[arguments["Return", "ReturnType"],
 		{
-			vr: ($VoidReturnPattern | PostProcessed[_Managed,___]) :> {mleID["res"]}, 
+			vr: (Managed[x_] | PostProcessed[Managed[x_],___]) :> {mleID[x, "res"]}, 
 			_ :> {}
 		}
 	]
@@ -881,7 +890,10 @@ getVariable[type_, name_] := Replace[preprocessFunctionNode[type],
 closeOff[getVariable]
 
 
-mleID[sym_String] := composeNode["ManagedLibraryExpressionID", symbolNode @ sym]
+mleID[type_, sym_String] := composeNode[
+	composeNode["getManagedID", symbolNode @ type], 
+	symbolNode @ sym
+]
 
 ClearAll[subTypeVariable]
 subTypeVariable["RDRingInfo"] := Nothing
@@ -999,10 +1011,10 @@ makeLHSNode[fspec_, argPatternNodes_] := composeNode[
 ]
 
 
-makeRHSNode[fun_, variableNodes_List, funOptions_, return_] := Module[
+makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_] := Module[
 	{res, definitions = {}, opts},
 	res = postProcess[return] @ composeNode[
-		"catchThrowErrors",
+		If[throws, "catchThrowErrors", "catchReleaseErrors"],
 		{
 			composeNode[symbolNode @ "fun", variableNodes],
 			getThrowerNode[fun]

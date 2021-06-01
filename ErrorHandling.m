@@ -116,6 +116,15 @@ catchThrowErrors = Function[{arg, caller},
 	HoldFirst
 ];
 
+catchReleaseErrors = Function[{arg, caller}, 
+	Replace[Quiet @ arg,
+		{
+			LibraryFunctionError[_, b_] :> createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
+		}
+	],
+	HoldFirst
+];
+
 
 errorCodeToName[errorCode_Integer]:=
 Block[{name = Select[$CorePacletFailureLUT, MatchQ[#, {errorCode, _}] &]},

@@ -10,10 +10,10 @@ normalizeFormattingGrid[x_] := x
 
 $gridPattern = {__BoxForm`SummaryItem} | {{_BoxForm`SummaryItem,___}..}
 
-addMethods[dat_ : $gridPattern, head_] := Module[
-	{methods = methodData[head]},
+addMethods[dat_ : $gridPattern, obj_] := Module[
+	{methods = methodData[Head @ obj]},
 	If[AssociationQ[methods],
-		methods = BoxForm`SummaryItem[{"Operations: ", getMethodButton[head, #]& /@ Keys[methods]}];
+		methods = BoxForm`SummaryItem[{"Operations: ", getMethodButton[obj, #]& /@ Keys[methods]}];
 		If[ListQ[dat[[1]]], methods = {methods, SpanFromLeft}];
 		Append[dat, methods]
 		,
@@ -22,11 +22,12 @@ addMethods[dat_ : $gridPattern, head_] := Module[
 ]
 addMethods[dat_,___] := dat
 
-getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
+(*getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
 	{icon, grid, sym},
 	sym = Head @ obj;
 	icon = getIcon @ obj;
-	grid = addMethods[normalizeFormattingGrid @obj["information"], Head @ obj];
+	grid = addMethods[normalizeFormattingGrid @ obj["information"], obj];
+	
 	If[!MatchQ[grid, $gridPattern] && ManagedLibraryExpressionQ[obj],
 		grid = {BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}}
 	];
@@ -35,7 +36,7 @@ getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
 		grid,
 		fmt, "CompleteReplacement" -> True, "Interpretable" -> interpretable
 	] /; MatchQ[grid, $gridPattern]
-];
+];*)
 getIcon[___] := None;
 
 getObjectInformation[obj_?ManagedLibraryExpressionQ] := Module[
@@ -49,11 +50,16 @@ getObjectInformation[obj_?ManagedLibraryExpressionQ] := Module[
 
 getMethodButton[obj_, name_] := name
 
-getMethodButton[obj_, name_] /; $Notebooks && StringQ[methodData[obj, name]] := Button[
-	Style[name, "InformationGridButton"],
-	Print @ methodData[obj, name],
-	Appearance -> None
+getMethodButton[obj_, name_] := Module[
+	{data = methodData[Head @ obj, name]},
+	With[
+		{params = If[MatchQ[data["Parameters"], {__String}], Placeholder /@ data["Parameters"], Sequence @@ {}]},
+		ClickToCopy[name, Defer[obj[name, params]]]
+	]
 ]
+
+
+
 
 getObjectInformation[___] := $Failed
 
@@ -95,7 +101,7 @@ Do[
 			t /: Information`OpenerViewQ[t, "Operations"] := True;
 			Replace[methodData[t],
 				ass_?AssociationQ :> (
-				t /: (_t)["Operations"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
+				t /: (_t)["Operations"] := getMethodButton[t, #]& /@ Keys[methodData[t]]
 					
 				)
 			]
@@ -105,14 +111,14 @@ Do[
 			{t = type, tstring = ToString[type]},
 			
 			t /: t[n_Integer]["Delete"] /; ManagedLibraryExpressionQ[t[n]] := $deleteInstance[SymbolName[t], n];
-			t /: MakeBoxes[obj$:t[_Integer], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[obj$]] := getMLEBox[obj$, fmt$, True];
-			methodData[type] = <|"Delete" -> StringJoin[tstring, "[..][\"Delete\"] deletes the ", tstring, " object."]|>;
+			t /: MakeBoxes[obj$:t[_Integer], fmt$_] /; validObject[Unevaluated[obj$]] := getMLEBox[obj$, fmt$, True];
 			Information`AddRegistry[t, getObjectInformation];
+			methodData[t] = <||>;
 			t /: Information`GetInformationSubset[obj : t[_Integer], props_List] := getObjectInformationSubset[obj, props];
 			t /: Information`OpenerViewQ[t, "Operations"] := True;
 			Replace[methodData[t],
 				ass_?AssociationQ :> (
-				t /: (_t)["Operations"] := getMethodButton[Head[t], #]& /@ Keys[methodData[t]]
+				t /: (_t)["Operations"] := getMethodButton[t, #]& /@ Keys[methodData[t]]
 					
 				)
 			]
@@ -120,3 +126,122 @@ Do[
 	],
 	{type, $MLEList}
 ]
+
+validObject[x_] := ManagedLibraryExpressionQ[Unevaluated[x]]
+
+
+
+ClearAll @ dynamicEvaluate;
+SetAttributes[dynamicEvaluate, HoldAllComplete];
+dynamicEvaluate[expr_, cachedValue_] := Dynamic[
+	expr, SynchronousUpdating -> False, TrackedSymbols :> {},
+	CachedValue :> cachedValue
+];
+
+ClearAll @ addDeclarations;
+SetAttributes[addDeclarations, HoldAll];
+addDeclarations[DynamicModuleBox[{a__}, b__], expr__] := DynamicModuleBox[{a, expr}, b];
+addDeclarations[a_, ___] := a;
+
+
+getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
+	{icon, grid, sym, methods = methodData[Head @ obj], box, sometimesGrid},
+	sym = Head @ obj;
+	icon = getIcon @ obj;
+	grid = normalizeFormattingGrid @ obj["information"];
+	If[!MatchQ[grid, $gridPattern] && ManagedLibraryExpressionQ[obj],
+		grid = {BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}}
+	];
+	sometimesGrid = Part[grid, Span[1, UpTo @ 2]];
+	If[Length[methods] > 0,
+		grid = addMethodsToGrid[methods, grid]
+	];
+	(
+		box = BoxForm`ArrangeSummaryBox[sym,
+			obj, icon, sometimesGrid,
+			grid,
+			fmt, "CompleteReplacement" -> True, "Interpretable" -> interpretable
+		];
+		If[Length[methods] > 0,
+			addMethodsToBox[methods, box, obj],
+			box
+		]
+	) /; MatchQ[grid, $gridPattern]
+];
+getIcon[___] := None;
+
+addMethodsToGrid[methodsData_, grid_] := Module[
+	{item},
+	item = BoxForm`SummaryItem[
+		{
+			"Operations: ", 
+			dynamicEvaluate[
+				ElisionsDump`expandablePane @ Replace[
+					getMethodButtons[Typeset`sobj$$, Typeset`sops$$],
+					Except[_List] :> Typeset`sops$$
+				],
+				Typeset`sops$$
+			]
+		}
+	];
+	If[MatchQ[grid, {__BoxForm`SummaryItem}],
+		Append[grid, item],
+		Append[grid, {item, SpanFromLeft}]
+	]
+	
+]
+
+addMethodsToBox[methods_, box_, obj_] := Module[
+	{dbox},
+	dbox = Cases[box, a_DynamicModuleBox :> a, Infinity, 1];
+	dbox = With[
+		{a = First[dbox], ops = Keys @ methods}, 
+		addDeclarations[a, Typeset`sobj$$ = obj, Typeset`sops$$ = ops]
+	];
+	box /. (_DynamicModuleBox -> dbox)
+		
+]
+		
+		
+getMethodButtons[obj_, operations_] := Map[
+	Function[
+		Button[
+			Tooltip[#,"function yeah"],
+			CopyToClipboard[
+				Replace[getInput[obj, #], _getInput :> StringJoin["\"", #, "\""]]
+			],
+			Appearance -> None, BaseStyle -> Automatic
+		]
+	],
+	operations
+]
+
+
+getInput[obj: HoldPattern[(head_)[__]], method_] := Module[
+	{md = methodData[head, method], vars},
+	(
+		vars = Replace[
+			md["Parameters"],
+			{
+				x:{__String} :> Apply[Sequence, Placeholder /@ x],
+				_ :> Sequence[]
+			}
+		];
+		With[{expr = Defer[obj][method, vars]},
+			{box = MakeBoxes[expr, StandardForm]},
+			Cell[BoxData @ box, "Input"]
+		]
+	) /; AssociationQ[md]
+]
+
+
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		

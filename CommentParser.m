@@ -36,6 +36,7 @@ scanDoxyString[body_] := Module[
 	res = <|"Usage" -> StringRiffle[usage, "\n"]|>;
 	res["Parameters"] = Cases[parsed, {"@param", param_} :> parseDoxyParam[param]];
 	res["Return"] = FirstCase[parsed, {"@return", ret:{__String}} :> parseReturn[ret], throw[body, "no return"]];
+	res["ThrowFailure"] = TrueQ[alwaysThrow || MemberQ[parsed, {"@throws", ___}]];
 	FirstCase[
 		parsed,
 		{"@note", {note__String}} :> (res["Note"] = StringRiffle[note, "\n"])
