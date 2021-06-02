@@ -206,7 +206,7 @@ addMethodsToBox[methods_, box_, obj_] := Module[
 getMethodButtons[obj_, operations_] := Map[
 	Function[
 		Button[
-			Tooltip[#,"function yeah"],
+			Tooltip[#,methodData[Head[obj], #, "Usage"]],
 			CopyToClipboard[
 				Replace[getInput[obj, #], _getInput :> StringJoin["\"", #, "\""]]
 			],
