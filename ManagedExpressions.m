@@ -4,7 +4,14 @@
 getManagedID[type_][(type_)[id_]] := id
 getManagedID[type_][l_List] := getManagedID[type] /@ l
 
-normalizeFormattingGrid[ass_?AssociationQ] := KeyValueMap[BoxForm`SummaryItem @ {StringJoin[#1, ": "], ElisionsDump`expandablePane @ #2}&, ass]
+normalizeFormattingGrid[ass_?AssociationQ] := Module[
+	{res},
+	res = KeyValueMap[BoxForm`SummaryItem @ {StringJoin[#1, ": "], ElisionsDump`expandablePane @ #2}&, ass];
+	If[Echo[Length[res]] > 10,
+		Partition[res, UpTo[2]],
+		res
+	]
+]
 normalizeFormattingGrid[ass:{__?AssociationQ}] := normalizeFormattingGrid /@ ass
 normalizeFormattingGrid[x_] := x
 
