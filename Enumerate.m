@@ -18,7 +18,7 @@ enumerate[name_, enums_?AssociationQ] := With[
 	enum[name][num_] := Lookup[
 		data, 
 		num, 
-		$ThrowingFunction["UnknownEnumValue", "MessageParameters" -> {num, name}]
+		ThrowPacletFailure["UnknownEnumValue", "MessageParameters" -> {num, name}]
 	];
 ]
 

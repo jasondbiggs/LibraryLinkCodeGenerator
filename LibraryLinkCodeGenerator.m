@@ -986,15 +986,9 @@ closeOff[makeOptionsNode]
 
 getHeadNode[{sym_, _}] := Pattern[expr, Blank[getHeadNode[{sym}]]]
 getHeadNode[{s_String}] := getHeadNode[{s}] = Symbol[$LibraryContext<>s]
-$NumberedSubtypes = "RDAtom" | "RDBond" | "RDConformer"
-getHeadNode[{owningType_, type:$NumberedSubtypes, x_}] := Pattern[
-	sub,
-	getHeadNode[{type}][{getHeadNode[{owningType, x}], Pattern[idx, Blank[]]}]
-]
-
 getHeadNode[{s_String}] := symbolNode @ s;
 getHeadNode[{sym_, _}] := parenNode @ namedPatternNode["expr", blankNode[getHeadNode @ {sym}]]
-getHeadNode[{owningType_, type:$NumberedSubtypes, _}] := composeNode[
+getHeadNode[{owningType_, type_, _}] := composeNode[
 	type,
 	listNode @ {
 		getHeadNode[{owningType, type}],
