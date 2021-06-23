@@ -7,7 +7,7 @@ getManagedID[type_][l_List] := getManagedID[type] /@ l
 normalizeFormattingGrid[ass_?AssociationQ] := Module[
 	{res},
 	res = KeyValueMap[BoxForm`SummaryItem @ {StringJoin[#1, ": "], ElisionsDump`expandablePane @ #2}&, ass];
-	If[Echo[Length[res]] > 10,
+	If[Length[res] > 10,
 		Partition[res, UpTo[2]],
 		res
 	]
@@ -29,21 +29,6 @@ addMethods[dat_ : $gridPattern, obj_] := Module[
 ]
 addMethods[dat_,___] := dat
 
-(*getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
-	{icon, grid, sym},
-	sym = Head @ obj;
-	icon = getIcon @ obj;
-	grid = addMethods[normalizeFormattingGrid @ obj["information"], obj];
-	
-	If[!MatchQ[grid, $gridPattern] && ManagedLibraryExpressionQ[obj],
-		grid = {BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}}
-	];
-	BoxForm`ArrangeSummaryBox[sym,
-		obj, icon, Part[grid, Span[1, UpTo @ 2]],
-		grid,
-		fmt, "CompleteReplacement" -> True, "Interpretable" -> interpretable
-	] /; MatchQ[grid, $gridPattern]
-];*)
 getIcon[___] := None;
 
 getObjectInformation[obj_?ManagedLibraryExpressionQ] := Module[
