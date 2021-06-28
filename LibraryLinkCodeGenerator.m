@@ -22,7 +22,7 @@ $inputDir = DirectoryName @ $InputFileName;
 
 $PacletDirectory = FileNameDrop[$InputFileName, -2]
 
-echo = If[$Notebooks, Echo, (Print[##2];Print[#1])&];
+echo = If[$Notebooks, Echo, (Print[""];Print[#1];Print[##2];Print[""];)&];
 
 If[!$Notebooks,
 	print[args___] := Print["\033[1;33m", args, "\033[1;0m"];
@@ -260,7 +260,9 @@ checkValidArguments[arguments_, {functiontype_, name_, body_}] := Module[
 			If[!StringFreeQ[body, "mngr.set"], throw[name, "cannot set return value in function returning managed object"]];
 			argCount++,
 		"Boolean",
-			If[StringFreeQ[body, "mngr.setBoolean"], throw[name, "no setBoolean call"]]
+			If[StringFreeQ[body, "mngr.setBoolean"], throw[name, "no setBoolean call"]],
+		"Void",
+			If[StringContainsQ[body, "mngr.set"], throw[name, "returns a value when declared void"]]
 	]
 ]
 

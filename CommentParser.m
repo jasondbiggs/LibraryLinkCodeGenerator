@@ -12,7 +12,7 @@ typeDescriptions = <|
 	Managed[x_] :> StringJoin[Replace[x, {s_String :> s, s_Symbol :> SymbolName[s]}], " object"],
 	{type_, 1} :> StringJoin[Replace[getTypeDescription[type], Except[_String] :> ""], " vector"],
 	{type_, 2} :> StringJoin[Replace[getTypeDescription[type], Except[_String] :> ""], " matrix"],
-	{type_, n_} :> StringJoin["rank-", IntegerString[n], " tensor of ", Replace[getTypeDescription[type], Except[_String] :> ""], "s"],
+	{type_, n_} :> StringJoin[Replace[n, {xx_Integer :> "rank-"<>IntegerString[xx], _ :> ""}], " tensor of ", Replace[getTypeDescription[type], Except[_String] :> ""], "s"],
 	PostProcessed[_, _, desc_] :> desc,
 	PostProcessed[x_, _] :> getTypeDescription[x],
 	enum[x_] :> x,
@@ -112,7 +112,7 @@ parseDoxyParam[{var_, comment___}] := Module[
 parseReturn[{return_, comment___}] := Module[
 	{res = <|"ReturnType" -> toExpression[return]|>},
 	res["ReturnDescription"] = getTypeDescription[res["ReturnType"]];
-	res["ReturnType"] = Replace[res["ReturnType"], outputAliases];
+	res["ReturnType"] = Replace[res["ReturnType"], Normal @ outputAliases];
 	If[Length[{comment}] > 0, res["Comment"] = StringRiffle[{comment}, "\n"]];
 	res
 ]
@@ -130,8 +130,8 @@ addCustomType[type_, input_, None, description_ : ""] := (
 )
 
 addCustomType[type_, input_, output_, description_ : ""] := (
-	inputAliases[type] = input;
-	outputAliases[type] = output;
+	inputAliases[type] := input;
+	outputAliases[type] := output;
 	getTypeDescription[type] = description;
 )
 

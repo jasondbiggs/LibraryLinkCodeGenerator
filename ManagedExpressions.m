@@ -87,7 +87,7 @@ Do[
 			{t = Last[type], owner = First[type]},
 			t /: t[{owner[n_Integer],___}]["GetOwner"] := owner[n];
 			t /: MakeBoxes[obj$:t[{owner[n_Integer],___}], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[owner[n]]] := getMLEBox[obj$, fmt$, True];
-			methodData[t] = <|"GetOwner" -> StringJoin["returns the owning ", ToString[owner], " object."]|>;
+			methodData[t] = <|"GetOwner" -> <|"Usage" -> StringJoin["returns the owning ", ToString[owner], " object."]|>|>;
 			Information`AddRegistry[t, getObjectInformation];
 			t /: Information`GetInformationSubset[obj : t[{owner[n_Integer],___}], props_List] := getObjectInformationSubset[obj, props];
 			t /: Information`OpenerViewQ[t, "Operations"] := True;
@@ -187,7 +187,7 @@ addMethodsToBox[methods_, box_, obj_] := Module[
 	{dbox},
 	dbox = Cases[box, a_DynamicModuleBox :> a, Infinity, 1];
 	dbox = With[
-		{a = First[dbox], ops = Keys @ methods}, 
+		{a = First[dbox], ops = Sort @ Keys @ methods}, 
 		addDeclarations[a, Typeset`sobj$$ = obj, Typeset`sops$$ = ops]
 	];
 	box /. (_DynamicModuleBox -> dbox)
