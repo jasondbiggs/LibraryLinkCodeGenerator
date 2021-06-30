@@ -88,7 +88,7 @@ Block[{msgParam, param, errorCode, msgTemplate, errorType, fun, assoc},
 
 GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 	{slotNames, slotValues, msgParams, selectedSlotValues, params = {}},
-	slotNames = DeleteDuplicates @ Cases[First @ StringTemplate @ msgTemplate, TemplateSlot[s_] -> s];
+	slotNames = DeleteDuplicates @ Cases[First @ StringTemplate @ msgTemplate, TemplateSlot[s_] :> s];
 	slotValues = If[ListQ[$LastFailureParameters], $LastFailureParameters, {}];
 	$LastFailureParameters = {};
 	msgParams = If[MatchQ[slotNames, {Repeated[_Integer]}],
