@@ -447,7 +447,7 @@ WriteLibrarySignatures[sourceFiles_, destinationFile_, params_] := Module[
 	pb = progbar[pbwidth, "scanning source files"];
 	nn = 0;
 	
-	Block[{throwAlways = TrueQ @ Lookup[params, "AlwaysThrow", False]},
+	Block[{throwAlways = TrueQ @ Lookup[params, "AlwaysThrow", True]},
 		signatures = (pb[Floor[++nn * pbwidth/Length[sourceFiles]]];scanForSignatures[#])& /@ sourceFiles;
 	];
 	
