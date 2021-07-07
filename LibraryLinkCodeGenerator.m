@@ -10,13 +10,15 @@ WriteLibrarySignatures
 Begin["`Private`"];
 
 Needs["CodeParser`"]
-Needs["CodeFormatter`"]
+(*Needs["CodeFormatter`"]*)
 Needs["GeneralUtilities`"]
 
 
 ClearAll["GetFunctions`Private`*"]
 (* ::Subsection::Closed:: *)
 (*Utilities*)
+
+tps := GeneralUtilities`ToPrettyString
 
 $inputDir = DirectoryName @ $InputFileName;
 
@@ -73,7 +75,7 @@ SetAttributes[prettyInputString, HoldAll]
 prettyInputString[expr_] := (
 	Needs["GeneralUtilities`"];
 	StringReplace[
-		GeneralUtilities`ToPrettyString[expr(*Unevaluated[expr]*)],
+		tps[expr(*Unevaluated[expr]*)],
 		{
 			"\r\n" -> "\n",
 			"$LibrarySymbol" -> "$LibrarySymbol",
@@ -112,7 +114,7 @@ prettyfyCodeString[codeString_] := ToExpression[codeString,
 	StandardForm,
 	Function[
 		arg, 
-		GeneralUtilities`ToPrettyString[Unevaluated[arg]],
+		tps[Unevaluated[arg]],
 		HoldAll
 	]
 ]
@@ -276,7 +278,7 @@ $flag = False;
 
 nodeToString[node: Except[_List]] := nodeToString[{node}];
 nodeToString[nodes_List] := stringPostProcess[
-	failOnMessage @ CodeFormatCST @ withFlag @ withFlag[containerNode[nodes]]
+	failOnMessage @ ToSourceCharacterString @ withFlag @ withFlag[containerNode[nodes]]
 ]
 
 
@@ -620,7 +622,7 @@ getUsageString[defineMemberFunction, obj:{___, object_, member_}, args_] := Modu
 	If[Length[vars] > 0, rhs["Parameters"] = Lookup[vars, "Name"]];
 	With[
 	{sym = Symbol[object], md = rhs},
-		GeneralUtilities`ToPrettyString[
+		tps[
 			Unevaluated @ Set[methodData[sym, member], md]
 		]
 	]
@@ -629,7 +631,7 @@ getUsageString[defineMemberFunction, obj:{___, object_, member_}, args_] := Modu
 
 getUsageString[defineExportedFunction, obj:{member_}, args_] := With[
 	{sym = Symbol[member], usage = getFunctionusage[defineExportedFunction, obj, args]},
-	GeneralUtilities`ToPrettyString[
+	tps[
 		Unevaluated @ Set[sym::usage, usage]
 	]
 	
@@ -637,7 +639,7 @@ getUsageString[defineExportedFunction, obj:{member_}, args_] := With[
 
 getUsageString[defineConstructor, obj:{___, object_, member_}, args_] := With[
 	{sym = Symbol[object], usage = getFunctionusage[defineConstructor, obj, args]},
-	GeneralUtilities`ToPrettyString[
+	tps[
 		Unevaluated @ Set[sym::usage, usage]
 	]
 	
@@ -753,7 +755,7 @@ getFunctionString[defineWSTPFunction[args__]] := Module[
 ]
 
 
-getFunctionString[Enumerate[type_String, vals:{__String} | _?AssociationQ]] := GeneralUtilities`ToPrettyString[
+getFunctionString[Enumerate[type_String, vals:{__String} | _?AssociationQ]] := tps[
 	enumerate[type, vals]
 ]
 
