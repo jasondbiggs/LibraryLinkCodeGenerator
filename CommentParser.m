@@ -145,7 +145,7 @@ getCustomTypes[files_] := Module[
 
 	directories = DeleteDuplicates[DirectoryName /@ files];
 
-	customTypeFiles = Import[#, "Text"]& /@ FileNames["CustomTypes.h", directories];
+	customTypeFiles = Import[#, "Text"]& /@ FileNames[{"CustomTypes/*h", "CustomTypes.h"}, directories];
 	comments = Select[Flatten[scanForComments /@ customTypeFiles], StringContainsQ["CustomType["]];
 	
 	toExpression[StringReplace[comments, "CustomType" -> "addCustomType"]]
