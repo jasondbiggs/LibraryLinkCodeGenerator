@@ -832,7 +832,7 @@ getLibraryArguments[(head_)[func_, arguments_]] := Module[
 		{_, _},
 			PrependTo[params, Integer],
 		{_, _, _},
-			params = Join[{Integer, Integer}, params]
+			PrependTo[params, {Integer, 1}]
 	];
 	If[MatchQ[arguments["Return", "ReturnType"], $VoidReturnPattern | PostProcessed[_Managed,___]],
 		AppendTo[params, Integer]
@@ -852,7 +852,7 @@ getVariables[(_)[functionType_List, arguments_Association]] := Join[
 		{
 			{_} :> {},
 			{class_, member_} :> {mleID[class, "expr"]},
-			{class_, subtype_, member_} :> {mleID[class, "expr"], symbolNode @ "idx"},
+			{class_, subtype_, member_} :> {listNode[{mleID[class, "expr"], symbolNode @ "idx"}]},
 			_ :> throw[functionType, "getVariables"]
 		}
 	],
