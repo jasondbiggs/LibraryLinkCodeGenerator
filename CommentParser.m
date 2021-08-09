@@ -30,12 +30,12 @@ outputAliases = <|
 |>
 
 
-scanDoxyString[body_] := Module[
-	{parsed = parseDoxygen[body], usage, params, return, res},
+scanDoxyString[docString_, body_] := Module[
+	{parsed = parseDoxygen[docString], usage, params, return, res},
 	usage = FirstCase[parsed, {"@brief", brief:{__String}} :> brief, {}];
 	res = <|"Usage" -> StringRiffle[usage, "\n"]|>;
 	res["Parameters"] = Cases[parsed, {"@param", param_} :> parseDoxyParam[param]];
-	res["Return"] = FirstCase[parsed, {"@return", ret:{__String}} :> parseReturn[ret], throw[body, "no return"]];
+	res["Return"] = FirstCase[parsed, {"@return", ret:{__String}} :> parseReturn[ret], parseReturn[{getAutoReturn[body]}]];
 	res["ThrowFailure"] = Or[
 		MemberQ[parsed, {"@throws", ___}],
 		TrueQ[throwAlways && !MemberQ[parsed, {"@nothrow", ___}] ]
@@ -115,6 +115,39 @@ parseDoxyParam[{var_, comment___}] := Module[
 
 parseReturn[{return_, comment___}] := Module[
 	{res = <|"ReturnType" -> toExpression[return]|>},
+	res["ReturnDescription"] = getTypeDescription[res["ReturnType"]];
+	res["ReturnType"] = Replace[res["ReturnType"], Normal @ outputAliases];
+	If[Length[{comment}] > 0, res["Comment"] = StringRiffle[{comment}, "\n"]];
+	res
+]
+
+getAutoReturn[body_] := First[
+	StringCases[body,
+		{
+			"mngr.setBoolean" -> "\"Boolean\"",
+			"mngr.setReal" -> "Real",
+			"mngr.setInteger" -> "Integer",
+			"mngr.setComplex" -> "Complex",
+			"mngr.setString" -> "String",
+			"mngr.setNumericArray" :> throw[body, " dimension required for tensor return"],
+			"mngr.setMNumericArray" :> throw[body, " dimension required for tensor return"],
+			"mngr.setTensor" :> throw[body, " dimension required for tensor return"],
+			"mngr.setMTensor" :> throw[body, " dimension required for tensor return"],
+			"mngr.setImage" :> throw[body, " dimension required for tensor return"],
+			"mngr.setMImage" :> throw[body, " dimension required for tensor return"],
+			"mngr.setDataList" -> "\"DataStore\"",
+			"mngr.setDataStore" -> "\"DataStore\"",
+			"mngr.setSparseArray" :> throw[body, " dimension required for tensor return"],
+			"mngr.setMSparseArray" :> throw[body, " dimension required for tensor return"],
+			"mngr.set" :> throw[body, " cannot infer return type"]
+		}
+	],
+	"\"Void\""
+]
+
+
+Module[
+	{res = <||>},
 	res["ReturnDescription"] = getTypeDescription[res["ReturnType"]];
 	res["ReturnType"] = Replace[res["ReturnType"], Normal @ outputAliases];
 	If[Length[{comment}] > 0, res["Comment"] = StringRiffle[{comment}, "\n"]];

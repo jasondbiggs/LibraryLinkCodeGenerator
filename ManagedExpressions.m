@@ -31,14 +31,6 @@ addMethods[dat_,___] := dat
 
 getIcon[___] := None;
 
-getObjectInformation[obj_?ManagedLibraryExpressionQ] := Module[
-	{info = obj["information"], methods = methodData[Head[obj]]},
-	If[!AssociationQ[info], Return[$Failed, Module]];
-	info["ObjectType"] = Head @ obj;
-	If[AssociationQ[methods], info["Operations"] = getMethodButton[Head[obj], #]& /@ Keys[methods]];
-	info
-]
-
 
 getMethodButton[obj_, name_] := name
 
@@ -50,24 +42,6 @@ getMethodButton[obj_, name_] := Module[
 	]
 ]
 
-
-
-
-getObjectInformation[___] := $Failed
-
-getObjectInformationSubset[obj_, props_] := Module[
-	{info = getObjectInformation[obj], methods = methodData[Head[obj]]},
-	If[!AssociationQ[info], Return[$Failed, Module]];
-	If[!AssociationQ[methods], methods = <||>];
-	Replace[props,
-		{
-			p : (Alternatives @@ Keys[info]) :> info[p],
-			p : (Alternatives @@ Keys[methods]) :> methods[p],
-			p_ :> Missing["KeyAbsent", p]
-		},
-		{1}
-	]
-]
 
 $clearManagedInstances := $clearManagedInstances = libraryFunctionLoad[$LibraryName, "clearManagedInstances", {"UTF8String"}, "Void"]
 clearManagedInstances[type_ : "All"] := $clearManagedInstances[type]
@@ -86,34 +60,18 @@ Do[
 		With[
 			{t = Last[type], owner = First[type]},
 			t /: t[{owner[n_Integer],___}]["GetOwner"] := owner[n];
-			t /: MakeBoxes[obj$:t[{owner[n_Integer],___}], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[owner[n]]] := getMLEBox[obj$, fmt$, True];
+			t /: MakeBoxes[obj$:t[{owner[n_Integer],___}], fmt$_] /; ManagedLibraryExpressionQ[Unevaluated[owner[n]]] := Module[{res}, res /; !FailureQ[res = getMLEBox[obj$, fmt$, True]]];
 			methodData[t] = <|"GetOwner" -> <|"Usage" -> StringJoin["returns the owning ", ToString[owner], " object."]|>|>;
-			Information`AddRegistry[t, getObjectInformation];
-			t /: Information`GetInformationSubset[obj : t[{owner[n_Integer],___}], props_List] := getObjectInformationSubset[obj, props];
-			t /: Information`OpenerViewQ[t, "Operations"] := True;
-			Replace[methodData[t],
-				ass_?AssociationQ :> (
-				t /: (_t)["Operations"] := getMethodButton[t, #]& /@ Keys[methodData[t]]
-					
-				)
-			]
+			t /: (_t)["Operations"] := Keys[methodData[t]]
 		]
 		,
 		With[
-			{t = type, tstring = ToString[type]},
+			{t = type},
 			
 			t /: t[n_Integer]["Delete"] /; ManagedLibraryExpressionQ[t[n]] := $deleteInstance[SymbolName[t], n];
-			t /: MakeBoxes[obj$:t[_Integer], fmt$_] /; validObject[Unevaluated[obj$]] := getMLEBox[obj$, fmt$, True];
-			Information`AddRegistry[t, getObjectInformation];
+			t /: MakeBoxes[obj$:t[_Integer], fmt$_] /; validObject[Unevaluated[obj$]] := Module[{res}, res /; !FailureQ[res = getMLEBox[obj$, fmt$, True]]];
 			methodData[t] = <||>;
-			t /: Information`GetInformationSubset[obj : t[_Integer], props_List] := getObjectInformationSubset[obj, props];
-			t /: Information`OpenerViewQ[t, "Operations"] := True;
-			Replace[methodData[t],
-				ass_?AssociationQ :> (
-				t /: (_t)["Operations"] := getMethodButton[t, #]& /@ Keys[methodData[t]]
-					
-				)
-			]
+			t /: (_t)["Operations"] := Keys[methodData[t]]
 		]
 	],
 	{type, $MLEList}
@@ -141,8 +99,18 @@ getMLEBox[obj_, fmt_, Optional[interpretable_, True]] := Module[
 	sym = Head @ obj;
 	icon = getIcon @ obj;
 	grid = normalizeFormattingGrid @ obj["information"];
-	If[!MatchQ[grid, $gridPattern] && ManagedLibraryExpressionQ[obj],
-		grid = {BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}}
+	If[!MatchQ[grid, $gridPattern],
+		grid = Which[
+			ManagedLibraryExpressionQ[obj],
+				{BoxForm`SummaryItem @ {"ID: ", ManagedLibraryExpressionID @ obj}},
+			MatchQ[obj, _[{_?ManagedLibraryExpressionQ, _Integer}]],
+				{
+					BoxForm`SummaryItem @ {"Parent: ", Head @ obj[[1,1]]},
+					BoxForm`SummaryItem @ {"ID: ", obj[[1,2]]}
+				},
+			True,
+				Return[$Failed, Module]
+		]
 	];
 	sometimesGrid = Part[grid, Span[1, UpTo @ 2]];
 	If[Length[methods] > 0,

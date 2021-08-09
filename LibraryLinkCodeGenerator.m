@@ -189,9 +189,9 @@ scanForFunction[functiontype_, name_, body_, doc_ : ""] := Module[
 scanForArguments[body_, ""] := Block[
 	{comments, MArgument = Identity, usage},
 	comments = Select[ImportString[body, "Lines"], StringContainsQ["///"]];
-	If[Length[comments] === 0,
+	(*If[Length[comments] === 0,
 		throw[body, "no arguments found"]
-	];
+	];*)
 	(* convert the inline comments to the block-style doxygen comment and parse that *)
 	
 	comments = StringRiffle[
@@ -206,7 +206,7 @@ scanForArguments[body_, ""] := Block[
 	
 ];
 
-scanForArguments[body_, docString_] := scanDoxyString[docString]
+scanForArguments[body_, docString_] := scanDoxyString[docString, body]
 
 
 
