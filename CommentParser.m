@@ -37,9 +37,8 @@ scanDoxyString[docString_, body_] := Module[
 	res["Parameters"] = Cases[parsed, {"@param", param_} :> parseDoxyParam[param]];
 	res["Return"] = FirstCase[parsed, {"@return", ret:{__String}} :> parseReturn[ret], parseReturn[{getAutoReturn[body]}]];
 	res["ThrowFailure"] = Or[
-		MemberQ[parsed, {"@throws", ___}],
-		TrueQ[throwAlways && !MemberQ[parsed, {"@nothrow", ___}] ]
-		
+		StringContainsQ[docString, "@throws"],
+		TrueQ[throwAlways && !StringContainsQ[docString, "@nothrow"]]
 	];
 	FirstCase[
 		parsed,
