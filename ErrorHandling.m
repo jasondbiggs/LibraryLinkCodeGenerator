@@ -106,24 +106,11 @@ GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 ];
 
 
+catchThrowErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := ThrowPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
+catchThrowErrors[a_, _] := a
 
-catchThrowErrors = Function[{arg, caller}, 
-	Replace[Quiet @ arg,
-		{
-			LibraryFunctionError[_, b_] :> ThrowPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
-		}
-	],
-	HoldFirst
-];
-
-catchReleaseErrors = Function[{arg, caller}, 
-	Replace[Quiet @ arg,
-		{
-			LibraryFunctionError[_, b_] :> createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
-		}
-	],
-	HoldFirst
-];
+catchThrowErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
+catchThrowErrors[a_, _] := a
 
 
 errorCodeToName[errorCode_Integer]:=

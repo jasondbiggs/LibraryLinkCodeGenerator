@@ -1011,13 +1011,13 @@ makeLHSNode[fspec_, argPatternNodes_] := composeNode[
 
 makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_] := Module[
 	{res, definitions = {}, opts},
-	res = postProcess[return] @ composeNode[
+	res = postProcess[return] @ composeNode["Quiet", composeNode[
 		If[throws, "catchThrowErrors", "catchReleaseErrors"],
 		{
 			composeNode[symbolNode @ "fun", variableNodes],
 			getThrowerNode[fun]
 		}
-	];
+	]];
 
 	If[Length @ funOptions > 0,
 		AppendTo[definitions,
