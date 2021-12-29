@@ -7,7 +7,10 @@
 
 If[
 	StringQ[$LibraryName = FindLibrary["LibraryName"]] && TrueQ[Check[LibraryLoad[$LibraryName];True, False]],
-	libraryFunctionLoad[args__] := Quiet @ Check[LibraryFunctionLoad @ args, Throw[$Failed, "liberr", #1&]],
+	libraryFunctionLoad[args__] := Replace[
+		Quiet @ Check[LibraryFunctionLoad @ args, $Failed],
+		Except[_LibraryFunction] :> Throw[$Failed[args], LibraryFailureTag]
+	];
 	libraryFunctionLoad[___] := $Failed
 ]
 
@@ -51,7 +54,7 @@ Options[createPacletFailure] = {
 };
 
 createPacletFailure[type_?StringQ, opts:OptionsPattern[]] :=
-Block[{msgParam, param, errorCode, msgTemplate, errorType, fun, assoc},
+Block[{msgParam, param, errorCode, msgTemplate, errorType, assoc},
 	msgParam = Replace[OptionValue["MessageParameters"], Except[_?AssociationQ | _List] -> <||>];
 	param = Replace[OptionValue["Parameters"], {p_?StringQ :> {p}, Except[{_?StringQ.. }] -> {}}];
 	{errorCode, msgTemplate} =
@@ -109,8 +112,8 @@ GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 catchThrowErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := ThrowPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
 catchThrowErrors[a_, _] := a
 
-catchThrowErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
-catchThrowErrors[a_, _] := a
+catchReleaseErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
+catchReleaseErrors[a_, _] := a
 
 
 errorCodeToName[errorCode_Integer]:=
