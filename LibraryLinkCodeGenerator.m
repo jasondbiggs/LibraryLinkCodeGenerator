@@ -759,14 +759,12 @@ getFunctionString[Enumerate[type_String, vals:{__String} | _?AssociationQ]] := t
 	enumerate[type, vals]
 ]
 
-Module[{counter = 0, template = StringTemplate["libfun$`1`"]},
-getLibSim[] := template[++counter]
-]
+getLibSym[fspec_] := composeNode[symbolNode @ "libfun", stringNode @ StringRiffle[fspec, "_"]]
 
 getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 	{
 		argumentPatterns, libraryArguments, variables, funOptions = {}, 
-		libReturn, libdef, optionsNode, lhs, rhs, libsym = getLibSim[]
+		libReturn, libdef, optionsNode, lhs, rhs, libsym = getLibSym[fspec]
 	},
 	argumentPatterns = (*Echo[#, "argPatterns"]&@ *)Replace[
 		getArgPatterns @ function,
@@ -949,9 +947,9 @@ transformLibraryArguments = ReplaceAll[
 
 
 makeLibDef[fspec_, libargs_List, libreturn_, libsym_] := setDelayedNode[
-	symbolNode @ libsym,
+	libsym,
 	setNode[
-		symbolNode @ libsym,
+		libsym,
 		composeNode[
 			libraryFunctionLoad,
 			{
@@ -1019,7 +1017,7 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_, libsym_] :=
 	res = postProcess[return] @ composeNode["Quiet", composeNode[
 		If[throws, "catchThrowErrors", "catchReleaseErrors"],
 		{
-			composeNode[symbolNode @ libsym, variableNodes],
+			composeNode[libsym, variableNodes],
 			getThrowerNode[fun]
 		}
 	]];
