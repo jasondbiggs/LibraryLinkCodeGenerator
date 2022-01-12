@@ -759,10 +759,12 @@ getFunctionString[Enumerate[type_String, vals:{__String} | _?AssociationQ]] := t
 	enumerate[type, vals]
 ]
 
+getLibSym[fspec_] := composeNode[symbolNode @ "libfun", stringNode @ StringRiffle[fspec, "_"]]
+
 getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 	{
 		argumentPatterns, libraryArguments, variables, funOptions = {}, 
-		libReturn, libdef, optionsNode, lhs, rhs
+		libReturn, libdef, optionsNode, lhs, rhs, libsym = getLibSym[fspec]
 	},
 	argumentPatterns = (*Echo[#, "argPatterns"]&@ *)Replace[
 		getArgPatterns @ function,
@@ -776,20 +778,18 @@ getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 	variables = getVariables @ function(* // Echo[#, "variables"]&*);
 	{argumentPatterns, libraryArguments, variables};
 	libReturn = getNode @ transformReturn @ arguments["Return", "ReturnType"](*  // Echo[#, "libreturn"]&*);
-	libdef = makeLibDef[fspec, libraryArguments, libReturn];
+	libdef = makeLibDef[fspec, libraryArguments, libReturn, libsym];
 	If[Head[libdef]=== makeLibDef, Throw[{function, libraryArguments, libReturn},"foo",#1&]];
 	(*If[Length[funOptions] > 0 && MatchQ[fspec, {_, __}],
 		throw[function, "options are not supported for object subvalues"]
 	];*)
 	optionsNode = makeOptionsNode[fspec, Rule[#Name, #DefaultValue]& /@ funOptions];
 	lhs = makeLHSNode[fspec, argumentPatterns];
-	rhs = makeRHSNode[fspec, variables, funOptions, arguments["Return", "ReturnType"], TrueQ @ arguments["ThrowFailure"]];
+	rhs = makeRHSNode[fspec, variables, funOptions, arguments["Return", "ReturnType"], TrueQ @ arguments["ThrowFailure"], libsym];
 	compoundExpression @ {
 		optionsNode,
-		withNode[
-			{libdef},
-			setDelayedNode[lhs, rhs]
-		]
+		libdef,
+		setDelayedNode[lhs, rhs]
 	}
 	
 ]
@@ -946,16 +946,19 @@ transformLibraryArguments = ReplaceAll[
 ];
 
 
-makeLibDef[fspec_, libargs_List, libreturn_] := setNode[
-	symbolNode @ "fun",
-	composeNode[
-		libraryFunctionLoad,
-		{
-			symbolNode["$LibraryName"],
-			stringNode @ StringRiffle[fspec,"_"],
-			listNode @ libargs,
-			libreturn
-		}
+makeLibDef[fspec_, libargs_List, libreturn_, libsym_] := setDelayedNode[
+	libsym,
+	setNode[
+		libsym,
+		composeNode[
+			libraryFunctionLoad,
+			{
+				symbolNode["$LibraryName"],
+				stringNode @ StringRiffle[fspec,"_"],
+				listNode @ libargs,
+				libreturn
+			}
+		]
 	]
 ]
 
@@ -1009,15 +1012,15 @@ makeLHSNode[fspec_, argPatternNodes_] := composeNode[
 ]
 
 
-makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_] := Module[
+makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_, libsym_] := Module[
 	{res, definitions = {}, opts},
-	res = postProcess[return] @ composeNode[
+	res = postProcess[return] @ composeNode["Quiet", composeNode[
 		If[throws, "catchThrowErrors", "catchReleaseErrors"],
 		{
-			composeNode[symbolNode @ "fun", variableNodes],
+			composeNode[libsym, variableNodes],
 			getThrowerNode[fun]
 		}
-	];
+	]];
 
 	If[Length @ funOptions > 0,
 		AppendTo[definitions,

@@ -7,7 +7,10 @@
 
 If[
 	StringQ[$LibraryName = FindLibrary["LibraryName"]] && TrueQ[Check[LibraryLoad[$LibraryName];True, False]],
-	libraryFunctionLoad[args__] := Quiet @ Check[LibraryFunctionLoad @ args, Throw[$Failed, "liberr", #1&]],
+	libraryFunctionLoad[args__] := Replace[
+		Quiet @ Check[LibraryFunctionLoad @ args, $Failed],
+		Except[_LibraryFunction] :> Throw[$Failed[args], LibraryFailureTag]
+	];
 	libraryFunctionLoad[___] := $Failed
 ]
 
@@ -33,10 +36,8 @@ With[
 
 With[{rdtag = LibraryFailureTag},
 	ThrowPacletFailure[type_String, params_List] := ThrowPacletFailure[type, "MessageParameters" -> params];
-	ThrowPacletFailure[type_ ? StringQ, opts:OptionsPattern[createPacletFailure]] := With[
-		{failure = createPacletFailure[type, opts]},
-		Throw[failure, rdtag, cleanFailure];
-	]
+	ThrowPacletFailure[type_ ? StringQ, opts:OptionsPattern[createPacletFailure]] := ThrowPacletFailure[createPacletFailure[type, opts]];
+	ThrowPacletFailure[failure_Failure] := Throw[failure, rdtag, cleanFailure]
 ]
 
 
@@ -51,7 +52,7 @@ Options[createPacletFailure] = {
 };
 
 createPacletFailure[type_?StringQ, opts:OptionsPattern[]] :=
-Block[{msgParam, param, errorCode, msgTemplate, errorType, fun, assoc},
+Block[{msgParam, param, errorCode, msgTemplate, errorType, assoc},
 	msgParam = Replace[OptionValue["MessageParameters"], Except[_?AssociationQ | _List] -> <||>];
 	param = Replace[OptionValue["Parameters"], {p_?StringQ :> {p}, Except[{_?StringQ.. }] -> {}}];
 	{errorCode, msgTemplate} =
@@ -106,24 +107,13 @@ GetCCodeFailureParams[msgTemplate_String ? StringQ] := Block[
 ];
 
 
+catchThrowErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := ThrowPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
+catchThrowErrors[ulf : HoldPattern[LibraryFunction[__][__]], _] := ThrowPacletFailure[Failure["UnevaluatedLibraryFunction", <|"Input" -> HoldForm[ulf]|>]]
+catchThrowErrors[a_, _] := a
 
-catchThrowErrors = Function[{arg, caller}, 
-	Replace[Quiet @ arg,
-		{
-			LibraryFunctionError[_, b_] :> ThrowPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
-		}
-	],
-	HoldFirst
-];
-
-catchReleaseErrors = Function[{arg, caller}, 
-	Replace[Quiet @ arg,
-		{
-			LibraryFunctionError[_, b_] :> createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
-		}
-	],
-	HoldFirst
-];
+catchReleaseErrors[HoldPattern[LibraryFunctionError[_, b_]], caller_] := createPacletFailure[errorCodeToName[b], "CallingFunction" -> caller]
+catchThrowErrors[ulf : HoldPattern[LibraryFunction[__][__]], _] := Failure["UnevaluatedLibraryFunction", <|"Input" -> HoldForm[ulf]|>]
+catchReleaseErrors[a_, _] := a
 
 
 errorCodeToName[errorCode_Integer]:=
