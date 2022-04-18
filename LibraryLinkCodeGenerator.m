@@ -368,7 +368,22 @@ namedBlankNode[name_] /; $flag := CompoundNode[
 	PatternBlank,
 	{LeafNode[Symbol, name, <||>], LeafNode[Token`Under, "_", <||>]},
 	<||>
-];
+]
+
+namedBlankNode[withHead[name_, head_]] /; $flag := CompoundNode[
+	PatternBlank,
+	{
+		symbolNode @ name, 
+		CompoundNode[Blank,
+			{
+				LeafNode[Token`Under, "_", <||>],
+				symbolNode @ head
+			},
+			<||>
+		]
+	},
+	<||>
+]
 
 namedPatternNode[name_, patternNode_] /; $flag := BinaryNode[Pattern,
 	{
@@ -379,6 +394,7 @@ namedPatternNode[name_, patternNode_] /; $flag := BinaryNode[Pattern,
 	<||>
 ];
 
+optionalPatternNode[name_, Hold[val_]] /; $flag := composeNode[HoldPattern, {composeNode[Optional, {namedBlankNode[name], getNode @ val}]}]
 optionalPatternNode[name_, val_] /; $flag := composeNode[Optional, {namedBlankNode[name], getNode @ val}]
 
 
@@ -775,7 +791,7 @@ getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 	];
 		
 	libraryArguments = (*Echo[#, "libargs"]&@*)getLibraryArguments @ function;
-	variables = getVariables @ function(* // Echo[#, "variables"]&*);
+	variables = getVariables @ ReplaceAll[function, withHead[x_,___] :> x](* // Echo[#, "variables"]&*);
 	{argumentPatterns, libraryArguments, variables};
 	libReturn = getNode @ transformReturn @ arguments["Return", "ReturnType"](*  // Echo[#, "libreturn"]&*);
 	libdef = makeLibDef[fspec, libraryArguments, libReturn, libsym];
@@ -796,7 +812,7 @@ getFunctionNode[function:(head_)[fspec_List, arguments_Association]] := Module[
 
 closeOff[getFunctionString]
 
-$VoidReturnPattern = _Managed
+$VoidReturnPattern = _Managed | "AsynchronousTaskObject"
 ClearAll @ getArgPatterns;
 getArgPatterns[(head_)[{class_, ___, member_}, arguments_]] := Prepend[
 	getArgPatterns @ arguments["Parameters"], 
@@ -807,13 +823,13 @@ getArgPatterns[(head_)[{class_, ___, member_}, arguments_]] := Prepend[
 getArgPatterns[_[_List, arguments_Association]] := getArgPatterns @ arguments["Parameters"]
 
 getArgPatterns[params:{___, KeyValuePattern["ParameterType" -> "Option"]}] := Append[
-	getArgPatterns[Select[params, #ParameterType === "Required"&]],
+	getArgPatterns[Select[params, #ParameterType =!= "Option"&]],
 	OptionsPattern[Select[params, #ParameterType === "Option"&]]
 ]
 
 getArgPatterns[params:{___, KeyValuePattern["ParameterType" -> "Optional"]}] := Join[
 	getArgPatterns[Select[params, #ParameterType === "Required"&]],
-	optionalPatternNode[#Name, getNode @ #DefaultValue]& /@ Select[params, #ParameterType === "Optional"&]
+	optionalPatternNode[#Name, #DefaultValue]& /@ Select[params, #ParameterType === "Optional"&]
 ]
 
 getArgPatterns[params:{___, KeyValuePattern["ParameterType" -> "PatternTest"]}] := namedPatternNode[#Name, getNode[#Pattern]]& /@ params;
@@ -859,7 +875,8 @@ getVariables[(_)[functionType_List, arguments_Association]] := Join[
 	getVariables @ arguments["Parameters"],
 	Replace[arguments["Return", "ReturnType"],
 		{
-			vr: (Managed[x_] | PostProcessed[Managed[x_],___]) :> {mleID[x, "res"]}, 
+			vr: (Managed[x_] | PostProcessed[Managed[x_],___]) :> {mleID[x, "res"]},
+			"AsynchronousTaskObject" -> {composeNode["getTaskID", {symbolNode @ "res"}]},
 			_ :> {}
 		}
 	]
@@ -878,6 +895,7 @@ closeOff[getVariables]
 
 ClearAll[getVariable]
 preprocessFunctionNode[enum[type_]] := composeNode[symbolNode @ "enum", stringNode @ type]
+preprocessFunctionNode["AsynchronousTaskObject"] := symbolNode @ "getTaskID"
 preprocessFunctionNode[type_Managed] := composeNode["getManagedID", getNode @ First @ type]
 preprocessFunctionNode[{type_Managed, 1}] := composeNode["getManagedID",getNode @ First @ type]
 preprocessFunctionNode["DataStore"] := symbolNode @ "toDataStore"
@@ -929,6 +947,7 @@ transformReturn = ReplaceAll[
 	{
 		"RawJSON" -> String,
 		_Managed -> "Void",
+		"AsynchronousTaskObject" -> "Void",
 		_enum -> Integer,
 		PostProcessed[a_,___] :> transformReturn[a]
 	}
@@ -940,6 +959,7 @@ transformLibraryArguments = ReplaceAll[
 		"RawJSON" -> String,
 		"StringList" -> "DataStore",
 		_Managed -> Integer,
+		"AsynchronousTaskObject" -> Integer,
 		_enum -> Integer,
 		{"NumericArray", _} -> "NumericArray"
 	}
@@ -1052,9 +1072,6 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_, libsym_] :=
 							partNode[symbolNode @ "options", n], 
 							composeNode[function, partNode[symbolNode @ "options", n]]
 						]
-						
-						
-						
 					] 	
 				},
 				{1}
@@ -1078,6 +1095,14 @@ makeRHSNode[fun_, variableNodes_List, funOptions_, return_, throws_, libsym_] :=
 ];
 
 getVoidNode[Managed[x_Symbol] | PostProcessed[Managed[x_Symbol],__]] := composeNode[symbolNode @ CreateManagedLibraryExpression, {stringNode @ x, symbolNode @ x}]
+getVoidNode["AsynchronousTaskObject"] := composeNode[
+	symbolNode @ Internal`CreateAsynchronousTask, 
+	{
+		symbolNode @ "createAsyncTaskID",
+		composeNode[symbolNode @ "List", {}],
+		symbolNode @ "MonitorAsyncTask"
+	}
+]
 
 flagConditionedQ[string_] := With[
 	{sym = ToExpression[string, StandardForm, Unevaluated]},
