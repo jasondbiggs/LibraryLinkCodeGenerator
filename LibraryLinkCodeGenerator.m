@@ -370,6 +370,12 @@ namedBlankNode[name_] /; $flag := CompoundNode[
 	<||>
 ]
 
+namedBlankSequenceNode[name_] /; $flag := CompoundNode[
+	PatternBlankSequence,
+	{LeafNode[Symbol, name, <||>], LeafNode[Token`Under, "__", <||>]},
+	<||>
+]
+
 namedBlankNode[withHead[name_, head_]] /; $flag := CompoundNode[
 	PatternBlank,
 	{
@@ -596,7 +602,7 @@ scanForSymbols[input_, librarySymbolContext_] := DeleteDuplicates @ Replace[inpu
 	{
 		{sym_} :> librarySymbolContext <> sym,
 		{obj_, method_} :> librarySymbolContext <> obj,
-		{obj_, sub_, method_} :> librarySymbolContext <> sub
+		{obj__, sub_, method_} :> librarySymbolContext <> sub
 	},
 	{1}
 ]
@@ -605,7 +611,7 @@ scanForManagedTypes[input_] := DeleteDuplicates @ Replace[input,
 	{
 		{sym_} :> Nothing,
 		{obj_, method_} :> obj,
-		{obj_, sub_, method_} :> {obj, sub}
+		{obj__, sub_, method_} :> {obj, sub}
 	},
 	{1}
 ]
@@ -847,7 +853,7 @@ getLibraryArguments[(head_)[func_, arguments_]] := Module[
 	Switch[func,
 		{_, _},
 			PrependTo[params, Integer],
-		{_, _, _},
+		{_, __, _},
 			PrependTo[params, {Integer, 1}]
 	];
 	If[MatchQ[arguments["Return", "ReturnType"], $VoidReturnPattern | PostProcessed[_Managed,___]],
@@ -868,7 +874,7 @@ getVariables[(_)[functionType_List, arguments_Association]] := Join[
 		{
 			{_} :> {},
 			{class_, member_} :> {mleID[class, "expr"]},
-			{class_, subtype_, member_} :> {listNode[{mleID[class, "expr"], symbolNode @ "idx"}]},
+			{class_, subtype__, member_} :> {listNode[{mleID[class, "expr"], symbolNode @ "idx"}]},
 			_ :> throw[functionType, "getVariables"]
 		}
 	],
@@ -1020,6 +1026,14 @@ getHeadNode[{owningType_, type_, _}] := composeNode[
 	listNode @ {
 		getHeadNode[{owningType, type}],
 		namedBlankNode["idx"]
+	}
+]
+
+getHeadNode[{owningType_, __, type_, _}] := composeNode[
+	type,
+	listNode @ {
+		getHeadNode[{owningType, type}],
+		namedBlankSequenceNode["idx"]
 	}
 ]
 
