@@ -310,16 +310,14 @@ composeNode[head_, node:Except[_List]] /; $flag := composeNode[head, {node}];
 composeNode[head:_Symbol | _String, nodes_List] /; $flag := composeNode[symbolNode @ head, nodes];
 composeNode[head_, nodes_List] /; $flag := CallNode[
 	{head},
-	{
-		GroupNode[GroupSquare,
-			{
-				LeafNode[Token`OpenSquare, "[", <||>],
-				If[Length[nodes] > 0, commaInfixNode @ nodes, Nothing],
-				LeafNode[Token`CloseSquare, "]", <||>]
-			},
-			<||>
-		]
-	},
+	GroupNode[GroupSquare,
+		{
+			LeafNode[Token`OpenSquare, "[", <||>],
+			If[Length[nodes] > 0, commaInfixNode @ nodes, Nothing],
+			LeafNode[Token`CloseSquare, "]", <||>]
+		},
+		<||>
+	],
 	<||>
 ];
 
