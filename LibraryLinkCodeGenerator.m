@@ -950,6 +950,7 @@ postProcess[_] := Identity
 transformReturn = ReplaceAll[
 	{
 		"RawJSON" -> String,
+		"RawDataStore" -> "DataStore",
 		_Managed -> "Void",
 		"AsynchronousTaskObject" -> "Void",
 		_enum -> Integer,

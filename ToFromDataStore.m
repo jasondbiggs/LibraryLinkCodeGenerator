@@ -9,9 +9,9 @@ toDataStore[rules:{__Rule}] := Developer`DataStore @@ MapAt[dsPrimitive, rules, 
 toDataStore[obj_List] := Developer`DataStore @@ (dsPrimitive /@ obj)
 toDataStore[ass_?AssociationQ /; AllTrue[Keys[ass], StringQ]] := Developer`DataStore @@ Normal[dsPrimitive /@ ass]
 
-dsPrimitive[obj : (_String | _Integer | _Real | {__Integer} | {__Real} | True | False)] := obj
+dsPrimitive[obj : (_String | _Integer | _Real | {__Integer} | {__Real} | True | False | _Rule)] := obj
 dsPrimitive[{s__String}] := Developer`DataStore[s]
-dsPrimitive[in : _Association | {__Rule} | _Rule] := toDataStore[in]
+dsPrimitive[in : _Association | {__Rule}] := toDataStore[in]
 dsPrimitive[obj_] := ThrowPacletFailure["NoDataStore", "MessageParameters" -> {obj}]
 
 
