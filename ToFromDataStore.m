@@ -12,7 +12,15 @@ toDataStore[ass_?AssociationQ /; AllTrue[Keys[ass], StringQ]] := Developer`DataS
 dsPrimitive[obj : (_String | _Integer | _Real | {__Integer} | {__Real} | True | False | _Rule)] := obj
 dsPrimitive[{s__String}] := Developer`DataStore[s]
 dsPrimitive[in : _Association | {__Rule}] := toDataStore[in]
-dsPrimitive[in_?ArrayQ] := in
+dsPrimitive[in_List] := Block[{pa},Which[
+	Developer`PackedArrayQ[in],
+		in,
+	Developer`PackedArrayQ[pa = Developer`ToPackedArray @ in],
+		pa,
+	True,
+		toDataStore[in]
+]]
+dsPrimitive[ds_Developer`DataStore] := ds;
 dsPrimitive[obj_] := ThrowPacletFailure["NoDataStore", "MessageParameters" -> {obj}]
 
 

@@ -963,6 +963,7 @@ transformLibraryArguments = ReplaceAll[
 		{type:(Integer | Real), _?IntegerQ} :> {type, _},
 		"RawJSON" -> String,
 		"StringList" -> "DataStore",
+		"RawDataStore" -> "DataStore",
 		_Managed -> Integer,
 		"AsynchronousTaskObject" -> Integer,
 		_enum -> Integer,
