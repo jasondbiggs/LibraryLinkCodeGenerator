@@ -24,7 +24,7 @@ With[
 If[!AssociationQ[$CorePacletFailureLUT],
 	$CorePacletFailureLUT = <|
 		"GeneralFailure" -> {31, "`1`"},
-		"UnknownEnumValue" -> {27, "`1` is not a known value for type `2`."}
+		"UnknownEnumValue" -> {27, "`1` is not a known value for type `2`, available types include `3`."}
 	|>
 ];
 
